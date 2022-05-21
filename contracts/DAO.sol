@@ -1,26 +1,31 @@
+//SPDX-License-Identifier: Unlicensed
+
 pragma solidity ^0.8.0;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
 import "./Staking.sol";
+import "@openzeppelin/contracts/utils/Counters.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
-//todo arefev: minimum quorum?
 contract DAO is Ownable {
+    using Counters for Counters.Counter;
 
+    /**
+     * @dev Represents a proposal
+     */
     struct Proposal {
+        bytes data;
+        address recipient;
+        string description;
         uint256 votesFor;
         uint256 votesAgainst;
         uint256 deadline;
+        address[] voters;
     }
 
     /**
      * @dev EOA responsible for proposals creation
      */
     address public chairman;
-
-    /**
-     * @dev todo arefev
-     */
-    Staking public staking;
 
     /**
      * @dev The minimum amount of votes needed to consider a proposal to be successful. Quorum = (votes / dao total supply) * 100.
@@ -32,18 +37,35 @@ contract DAO is Ownable {
      */
     uint256 public debatingPeriodDuration;
 
-    Proposal private currentProposal;
-    mapping(address => bool) private voters;
+    /**
+     * @dev Staking contract
+     */
+    Staking private staking; //todo arefev: interface
+
+    /**
+     * @dev Used to generate proposal ids
+     */
+    Counters.Counter private proposalIdGenerator;
+
+    /**
+     * @dev A mapping "proposalId => Proposal"
+     */
+    mapping(uint256 => Proposal) private proposals;
+
+    /**
+     * @dev That counter is used to determine whether a stakeholder is currently participating in proposals
+     */
+    mapping(address => uint256) private proposalCounters;
 
     /**
      * @dev Emitted when a proposal was successfully finished
      */
-    event ProposalFinished(bool approved);
+    event ProposalFinished(uint256 indexed proposalId, string description, bool approved);
 
     /**
      * @dev Emitted when a proposal was failed
      */
-    event ProposalFailed(string reason);
+    event ProposalFailed(uint256 indexed proposalId, string description, string reason);
 
     /**
      * @dev Emitted when a proposal was created
@@ -63,32 +85,44 @@ contract DAO is Ownable {
         debatingPeriodDuration = _debatingPeriodDuration;
     }
 
-    /*todo arefev:
-        1. There should be only one proposal at time
-        2. onlyChairman?
-    */
     /**
      * @notice creates a new proposal
      */
-    function startVoting() public onlyChairman {
-        require(currentProposal.deadline == 0, "todo arefev"); //may be I should use a flag?
+    function addProposal(bytes memory data, address recipient, string memory _description) public onlyChairman {
+        uint32 codeSize;
+        assembly {
+            codeSize := extcodesize(recipient)
+        }
+        require(codeSize > 0, "Recipient is not a contract");
+
+        uint256 nextProposalId = proposalIdGenerator.current();
+        proposalIdGenerator.increment();
+
+        Proposal storage newProposal = proposals[nextProposalId];
+        newProposal.data = data;
+        newProposal.recipient = recipient;
+        newProposal.description = _description;
         newProposal.deadline = block.timestamp + debatingPeriodDuration;
-        emit ProposalCreated(nextProposalId); //todo arefev: rename that event
+        proposals[nextProposalId] = newProposal;
+        proposalCounters[msg.sender] += 1;
+
+        emit ProposalCreated(nextProposalId);
     }
 
     /**
      * @notice registers `msg.sender` vote
      */
     function vote(uint256 proposalId, bool votesFor) public {
-        //todo arefev: check balance
+        Proposal storage proposal = proposals[proposalId];
+
         require(proposal.deadline != 0, "Proposal is not started");
         require(proposal.deadline > block.timestamp, "Proposal is finished");
-        require(!voters[msg.sender], "Already voted");
+        require(proposal.voters[msg.sender] != address(0), "Already voted");
 
         uint256 balance = staking.getStake(msg.sender);
         require(balance > 0, "Not a stakeholder");
 
-        voters[msg.sender] = true;
+        proposal.voters[msg.sender] = true;
 
         if (votesFor) {
             proposal.votesFor += balance;
@@ -101,6 +135,8 @@ contract DAO is Ownable {
      * @notice finishes the proposal with id `proposalId`
      */
     function finishProposal(uint256 proposalId) public {
+        Proposal storage proposal = proposals[proposalId];
+
         require(proposal.deadline != 0, "Proposal not found");
         require(block.timestamp >= proposal.deadline, "Proposal is still in progress");
 
@@ -108,16 +144,24 @@ contract DAO is Ownable {
             emit ProposalFailed("No votes for proposal");
         } else if ((proposal.votesFor + proposal.votesAgainst) * 100 / staking.totalStake() >= minimumQuorum) {
             if (proposal.votesFor > proposal.votesAgainst) {
-                staking.setStakeWithdrawalTimeout(); //todo arefev: define timeout
-                emit ProposalFinished(true);
+                (bool success,) = proposal.recipient.call{value : 0}(proposal.data);
+
+                if (success) {
+                    emit ProposalFinished(proposalId, proposal.description, true);
+                } else {
+                    emit ProposalFailed(proposalId, proposal.description, "Function call failed");
+                }
             } else {
-                emit ProposalFinished(false);
+                emit ProposalFinished(proposalId, proposal.description, false);
             }
         } else {
             emit ProposalFailed(proposalId, proposal.description, "Minimum quorum is not reached");
         }
 
-        //todo arefev: clean mappings
+        for (uint256 i = 0; i < proposal.voters.length; i++) {
+            proposalCounters[proposal.voters[i]] -= 1;
+        }
+        delete proposals[proposalId];
     }
 
     /**
@@ -152,9 +196,16 @@ contract DAO is Ownable {
     }
 
     /**
-     * @notice An amount of deposited tokens for the `stakeholder`
+     * @return The address of the staking contract
      */
-    function deposited(address stakeholder) public view returns(uint256) {
-        return stakeholdersToDeposits[stakeholder];
+    function stakingContractAddress() public view returns (address) {
+        return address(staking);
+    }
+
+    /**
+     * @return Whether a given EOA is participating in proposals
+     */
+    function isParticipant(address stakeholder) public view returns (bool) {
+        return proposalCounters[stakeholder] > 0;
     }
 }

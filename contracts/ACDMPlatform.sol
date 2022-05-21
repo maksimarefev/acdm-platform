@@ -1,21 +1,22 @@
+//SPDX-License-Identifier: Unlicensed
+
 pragma solidity ^0.8.0;
 
 import "./ACDMToken.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
 
+//todo arefev: setters
 //todo arefev: add register method
-//todo arefev: add isClosed flag?
-//todo arefev: may there are more than 6 rounds?
+//todo arefev: transfer returns a flag
+//todo arefev: если в трейд раунде не было ордеров, то в sale раунде не будет минта
+//todo arefev: реферер может быть только 1! второй реферер - это реферер реферера
+//todo arefev: мапа для рефереров
+//todo arefev: необязательно быть зарегистрированным для взаимодействия с платформой
+//todo arefev: коммиссия рефералов капает на отдельный счет; к этому счету доступ будет только у ДАО
 contract ACDMPlatform {
     using Counters for Counters.Counter;
 
-    enum Round {
-        /*todo arefev: в данном раунде пользователи могут выкупать друг у друга токены ACDM за ETH;
-           По окончанию раунда все открытые ордера переходят в следующий TRADE раунд..
-         */
-        TRADE,
-        SALE    //todo arefev: В данном раунде пользователь может купить токены ACDM по фиксируемой цене у платформы за ETH
-    }
+    enum Round { TRADE, SALE }
 
     struct Order {
         uint256 amount;
@@ -23,35 +24,51 @@ contract ACDMPlatform {
         uint256 price; //price per token
     }
 
-    //todo arefev: use an array?
-    struct User {
-        address firstReferer;
-        address secondReferer;
+    struct Referers {
+        address firstReferererTrade;
+        address secondRefererTrade;
+        address firstReferererSale;
+        address secondRefererSale;
     }
 
     uint256 public roundDuration;
     uint256 public roundDeadline;
-    uint256 public currentRoundNumber; //todo arefev: max == 6
-    uint256 public firstReferererFee; //todo arefev: make them configurable
-    uint256 public secondRefererFee;
+    uint256 public currentRoundNumber;
     uint256 public currentRound;
+
+    //for the 'Trade' round
+    uint256 public tradeVolume;
+    uint256 public firstReferererTradeFee;
+    uint256 public secondRefererTradeFee;
 
     //for the 'Sale' round
     uint256 public currentTokenPrice;
     uint256 public tokensIssued;
     uint256 public tokensSold;
+    uint256 public firstReferererSaleFee;
+    uint256 public secondRefererSaleFee;
 
-    /**todo arefev:
-        Объем торгов в trade раунде = 0,5 ETH (общая сумма ETH на которую пользователи наторговали в рамках одного trade раунд)
-        0,5/0,0000187 = 26737.96. (0,0000187 = цена токена в текущем раунде)
-        => в Sale раунде будет доступно к продаже 26737.96 токенов ACDM.
-     */
     uint256 private lastRoundTradeVolume;
-    mapping(uint256 => Order) orders;
-    Counters.Counter private orderIdGenerator; //todo arefev: why use order id?
+    mapping(uint256 => Order) private orders;
+    mapping(address => Referers) private referers;
+    mapping(address => bool) private registeredUsers;
+    Counters.Counter private orderIdGenerator;
     ACDMToken private acdmToken;
 
+    constructor(address _acdmToken) public {
+        acdmToken = ACDMToken(_acdmToken);
+        tokensIssued = 100000 * 10 * acdmToken.decimals();
+        currentTokenPrice = 10000000000000;
+        acdmToken.mint(tokensIssued, address(this));
+        currentRound = Round.SALE;
+    }
+
+    /**
+     * @notice Creates a new order (todo arefev: description)
+     */
     function putOrder(uint256 amount, uint256 price) public {
+        switchRoundIfRequired();
+        require(currentRound == Round.TRADE, "Not a 'Trade' round");
         require(amount > 0, "Amount can't be 0");
         require(price > 0, "Price can't be 0");
         require(acdmToken.balanceOf(msg.sender) >= amount, "Not enough balance");
@@ -62,7 +79,9 @@ contract ACDMPlatform {
         orderIdGenerator.increment();
     }
 
-    function cancellOrder(uint256 orderId) {
+    function cancellOrder(uint256 orderId) public {
+        switchRoundIfRequired();
+        require(currentRound == Round.TRADE, "Not a 'Trade' round");
         require(orders[orderId].amount > 0, "Order does not exist");
         require(orders[orderId].owner == msg.sender, "Not the order owner");
 
@@ -71,11 +90,12 @@ contract ACDMPlatform {
         acdmToken.transfer(msg.sender, amount);
     }
 
-    //todo arefev: change round if necessary
     /**
      * @notice Buy for the 'Trade' round
      */
     function buy(uint256 orderId, uint256 amount) public {
+        switchRoundIfRequired();
+        require(currentRound == Round.TRADE, "Not a 'Trade' round");
         require(orders[orderId].amount > 0, "Order does not exist");
         require(orders[orderId].amount >= amount, "Too large amount");
         require(msg.value >= amount * orders[orderId].price, "Not enough ether");
@@ -90,41 +110,46 @@ contract ACDMPlatform {
      * @notice Buy for the 'Sale' round
      */
     function buy(uint256 amount) public {
-        switchRoundIfNecessary();
-        require(Round.SALE == currentRound, "Not the 'Sale' round");
-        require(acdmToken.balanceOf(address(this)) >= amount, "Not enough balance");
+        switchRoundIfRequired();
+        require(currentRound == Round.SALE, "Not a 'Sale' round");
+        require(tokensIssued - tokensSold >= amount, "Not enough balance");
         require(currentTokenPrice * amount <= msg.value, "Not enough ether");
 
+        tokensSold += amount;
         acdmToken.transfer(msg.sender, amount);
-
-        if (acdmToken.balanceOf(address(this)) == 0) {
-            switchRoundIfNecessary();
-        }
     }
 
-    //todo arefev: implement
-    //todo arefev: ETH is divisible up to 18 decimal places
-    function saleRoundTokenPrice() internal returns(uint256) {
-        return currentTokenPrice * 3 / 100 + currentTokenPrice +  + 400000000000000;
+    //todo arefev: referers should be registered as well
+    function register(
+        address _firstReferererTrade,
+        address _secondRefererTrade,
+        address _firstReferererSale,
+        address _secondRefererSale
+    ) public {
+        require(!registeredUsers[msg.sender], "Already registered");
+        registeredUsers[msg.sender] = true;
+        referers[msg.sender] =
+            Referers(_firstReferererTrade, _secondRefererTrade, _firstReferererSale, _secondRefererSale);
     }
 
-    function switchRoundIfNecessary() internal {
-        /*todo arefev: implement:
-            1. If there are no more tokens to sell
-            2. If the deadline has met
-            3. While switching to the 'Sale' round calculate new price
-        */
-
-        if (Round.SALE == currentRound && tokensIssued == tokensSold) {
-            //todo arefev: switch
+    function switchRoundIfRequired() internal {
+        if (block.timestamp < roundDeadline && (Round.SALE != currentRound || tokensIssued != tokensSold)) {
             return;
         }
 
-        if (block.timestamp >= roundDeadline) {
-            //todo arefev: switch
-            //todo arefev: burn tokens if it was the 'Sale' round
-            //todo arefev: mint tokens if it was the 'Trade' round
-            return;
+        if (currentRound == Round.SALE) {
+            if (tokensIssued != tokensSold) {
+                acdmToken.burn(tokensIssued - tokensSold);
+            }
+            tradeVolume = 0;
+            currentRound = Round.TRADE;
+        } else {
+            tokensIssued = tradeVolume / currentTokenPrice;
+            currentTokenPrice = currentTokenPrice * 3 / 100 + currentTokenPrice + 4000000000000;
+            acdmToken.mint(tokensIssued, address(this));
+            currentRound = Round.SALE;
         }
+
+        roundDeadline = block.timestamp + roundDuration;
     }
 }

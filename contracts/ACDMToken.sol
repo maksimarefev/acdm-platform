@@ -1,3 +1,5 @@
+//SPDX-License-Identifier: Unlicensed
+
 pragma solidity ^0.8.0;
 
 import "./Mintable.sol";
@@ -22,6 +24,7 @@ contract ACDMToken is ERC20Burnable, Mintable {
         return 6;
     }
 
+    //todo arefev: seems like the platform should be the minter
     function mint(uint256 amount, address receiver) public onlyMinter() {
         require(receiver != address(0), "Address can't be 0");
         _mint(receiver, amount);

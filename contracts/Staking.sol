@@ -1,33 +1,30 @@
+//SPDX-License-Identifier: Unlicensed
+
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "./DAO.sol";
 
-//todo arefev: stakeWithdrawalTimeout может быть установлен только через DAO
 contract Staking {
 
-    IERC20 public rewardToken;
+    /**
+     * @dev Represents a stakeholder
+     */
+    struct Stakeholder {
+        uint256 stake;
+        uint256 lastStakeDate;
+        uint256 reward;
+        uint256 rewardUpdateDate;
+    }
+
+    IERC20 public rewardToken; //todo arefev: public?
 
     IERC20 public stakingToken;
 
     /**
-     * @dev The stakes for each stakeholder.
+     * @dev A mapping "stakholder address => Stakeholder"
      */
-    mapping(address => uint256) private stakes;
-
-    /**
-     * @dev Stores last stake update dates
-     */
-    mapping(address => uint256) private lastStakeDates;
-
-    /**
-     * @dev The reward for each stakeholder.
-     */
-    mapping(address => uint256) private rewards;
-
-    /**
-     * @dev Stores last dates of reward updates
-     */
-    mapping(address => uint256) private rewardUpdateDates;
+    mapping(address => Stakeholder) stakeholders;
 
     /**
      * @dev The reward percentage
@@ -44,13 +41,28 @@ contract Staking {
      */
     uint256 public stakeWithdrawalTimeout;
 
+    /**
+     * @dev Total value locked
+     */
     uint256 public totalStake;
 
-    //todo arefev: should the owner be == dao?
+    /**
+     * @dev Contract owner address
+     */
     address public owner;
+
+    /**
+     * @dev The DAO which uses this contract to perform voting
+     */
+    DAO private dao; //todo arefev: interface;
 
     modifier onlyOwner() {
         require(msg.sender == owner, "Caller is not the owner");
+        _;
+    }
+
+    modifier onlyDAO() {
+        require(msg.sender == address(dao), "Caller is not the DAO");
         _;
     }
 
@@ -59,12 +71,14 @@ contract Staking {
         address _rewardToken,
         uint8 _rewardPercentage,
         uint256 _rewardPeriod,
-        uint256 _stakeWithdrawalTimeout
+        uint256 _stakeWithdrawalTimeout,
+        address _dao
     ) public {
         owner = msg.sender;
         setRewardPercentage(_rewardPercentage);
         setRewardPeriod(_rewardPeriod);
         setStakeWithdrawalTimeout(_stakeWithdrawalTimeout);
+        dao = DAO(_dao);
         stakingToken = IERC20(_stakingToken);
         rewardToken = IERC20(_rewardToken);
     }
@@ -74,12 +88,14 @@ contract Staking {
      * @param amount the amount of tokens to stake
      */
     function stake(uint256 amount) external {
+        Stakeholder storage stakeholder = stakeholders[msg.sender];
+
         _updateReward();
 
-        stakes[msg.sender] += amount;
+        stakeholder.stake += amount;
         totalStake += amount;
 
-        lastStakeDates[msg.sender] = block.timestamp;
+        stakeholder.lastStakeDate = block.timestamp;
         require(stakingToken.transferFrom(msg.sender, address(this), amount), "Reward token transfer failed");
     }
 
@@ -87,29 +103,33 @@ contract Staking {
      * @notice Transfers the reward tokens if any to the `msg.sender` address
      */
     function claim() external {
+        Stakeholder storage stakeholder = stakeholders[msg.sender];
+
         _updateReward();
 
-        uint256 reward = rewards[msg.sender];
+        uint256 reward = stakeholder.reward;
 
         require(reward > 0, "No reward for the caller");
 
-        rewards[msg.sender] = 0;
+        stakeholder.reward = 0;
         require(rewardToken.transfer(msg.sender, reward), "Reward token transfer failed");
     }
 
-    //todo arefev: forbid withdraw if there msg.sender is participating in voting
     /**
      * @notice Transfers staked tokens if any to the `msg.sender` address
      */
     function unstake() external {
-        require(stakes[msg.sender] > 0, "The caller has nothing at stake");
+        Stakeholder storage stakeholder = stakeholders[msg.sender];
 
-        uint256 lastStakeDate = lastStakeDates[msg.sender];
+        require(stakeholder.stake > 0, "The caller has nothing at stake");
+
+        uint256 lastStakeDate = stakeholder.lastStakeDate;
         require(block.timestamp - lastStakeDate >= stakeWithdrawalTimeout, "Timeout is not met");
+        require(!dao.isParticipant(msg.sender), "A proposal participant");
 
         _updateReward();
-        uint256 amount = stakes[msg.sender];
-        stakes[msg.sender] = 0;
+        uint256 amount = stakeholder.stake;
+        stakeholder.stake = 0;
         totalStake -= amount;
         require(stakingToken.transfer(msg.sender, amount), "Staking token transfer failed");
     }
@@ -138,7 +158,7 @@ contract Staking {
      * @notice Sets the stake withdrawal timeout
      * @param _stakeWithdrawalTimeout is the stake withdrawal timeout to be set
      */
-    function setStakeWithdrawalTimeout(uint256 _stakeWithdrawalTimeout) public onlyOwner {
+    function setStakeWithdrawalTimeout(uint256 _stakeWithdrawalTimeout) public onlyDAO {
         stakeWithdrawalTimeout = _stakeWithdrawalTimeout;
     }
 
@@ -148,7 +168,14 @@ contract Staking {
      * @return the total amount of staked tokens for the `stakeholder`
      */
     function getStake(address stakeholder) public view returns (uint256) {
-        return stakes[stakeholder];
+        return stakeholders[stakeholder].stake;
+    }
+
+    /**
+     * @return todo arefev: description
+     */
+    function daoAddress() public view returns (address) {
+        return address(dao);
     }
 
     /**
@@ -161,14 +188,16 @@ contract Staking {
     }
 
     function _updateReward() internal {
-        if (stakes[msg.sender] == 0) {
-            rewardUpdateDates[msg.sender] = block.timestamp;
+        Stakeholder storage stakeholder = stakeholders[msg.sender];
+
+        if (stakeholder.stake == 0) {
+            stakeholder.rewardUpdateDate = block.timestamp;
             return;
         }
 
-        uint256 rewardPeriods = (block.timestamp - rewardUpdateDates[msg.sender]) / rewardPeriod;
-        uint256 reward = stakes[msg.sender] * rewardPeriods * rewardPercentage / 100;
-        rewards[msg.sender] += reward;
-        rewardUpdateDates[msg.sender] = block.timestamp;
+        uint256 rewardPeriods = (block.timestamp - stakeholder.rewardUpdateDate) / rewardPeriod;
+        uint256 reward = stakeholder.stake * rewardPeriods * rewardPercentage / 100;
+        stakeholder.reward += reward;
+        stakeholder.rewardUpdateDate = block.timestamp;
     }
 }
