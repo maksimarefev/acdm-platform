@@ -2,12 +2,13 @@
 
 pragma solidity ^0.8.0;
 
-import "./Mintable.sol";
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
+import "./interface/ERC20BurnableMintable.sol";
 
-contract ACDMToken is ERC20Burnable, Mintable {
+contract ACDMToken is ERC20BurnableMintable {
 
+    /**
+     * @dev The minter (ACDM platform)
+     */
     address public minter;
 
     modifier onlyMinter() {
@@ -15,18 +16,16 @@ contract ACDMToken is ERC20Burnable, Mintable {
         _;
     }
 
-    constructor() public ERC20("ACADEM Coin", "ACDM") {
-        minter = msg.sender;
+    constructor(address acdmPlatform) public ERC20("ACADEM Coin", "ACDM") {
+        minter = acdmPlatform;
     }
 
-    //todo arefev: check style - an order of functions by their visibility, to be more specific
-    function decimals() public view override returns (uint8) {
-        return 6;
-    }
-
-    //todo arefev: seems like the platform should be the minter
     function mint(uint256 amount, address receiver) public override onlyMinter() {
         require(receiver != address(0), "Address can't be 0");
         _mint(receiver, amount);
+    }
+
+    function decimals() public pure override returns (uint8) {
+        return 6;
     }
 }

@@ -2,11 +2,12 @@
 
 pragma solidity ^0.8.0;
 
-import "./Staking.sol";
+import "./interface/IStaking.sol";
+import "./interface/IDAO.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract DAO is Ownable {
+contract DAO is IDAO, Ownable {
     using Counters for Counters.Counter;
 
     /**
@@ -19,28 +20,19 @@ contract DAO is Ownable {
         uint256 votesFor;
         uint256 votesAgainst;
         uint256 deadline;
-        address[] voters; //todo arefev: mapping is required
+        address[] voters;
     }
 
-    /**
-     * @dev EOA responsible for proposals creation
-     */
-    address public chairman;
+    address public override chairman;
 
-    /**
-     * @dev The minimum amount of votes needed to consider a proposal to be successful. Quorum = (votes / dao total supply) * 100.
-     */
-    uint256 public minimumQuorum;
+    uint256 public override minimumQuorum;
 
-    /**
-     * @dev EOA responsible for proposals creation
-     */
-    uint256 public debatingPeriodDuration;
+    uint256 public override debatingPeriodDuration;
 
     /**
      * @dev Staking contract
      */
-    Staking private staking; //todo arefev: interface
+    IStaking private staking;
 
     /**
      * @dev Used to generate proposal ids
@@ -58,7 +50,7 @@ contract DAO is Ownable {
     mapping(address => uint256) private proposalCounters;
 
     /**
-     * @dev todo arefev: description
+     * @dev Maps proposalId to proposal's voters
      */
     mapping(uint256 => mapping(address => bool)) private proposalsToVoters; //since the compiler does not allow us to assign structs with nested mappings :(
 
@@ -85,15 +77,12 @@ contract DAO is Ownable {
     constructor(address _chairman, address _staking, uint256 _minimumQuorum, uint256 _debatingPeriodDuration) public {
         require(_minimumQuorum <= 100, "Minimum quorum can not be > 100");
         chairman = _chairman;
-        staking = Staking(staking);
+        staking = IStaking(_staking);
         minimumQuorum = _minimumQuorum;
         debatingPeriodDuration = _debatingPeriodDuration;
     }
 
-    /**
-     * @notice creates a new proposal
-     */
-    function addProposal(bytes memory data, address recipient, string memory _description) public onlyChairman {
+    function addProposal(bytes memory data, address recipient, string memory _description) public override onlyChairman {
         uint32 codeSize;
         assembly {
             codeSize := extcodesize(recipient)
@@ -114,10 +103,7 @@ contract DAO is Ownable {
         emit ProposalCreated(nextProposalId);
     }
 
-    /**
-     * @notice registers `msg.sender` vote
-     */
-    function vote(uint256 proposalId, bool votesFor) public {
+    function vote(uint256 proposalId, bool votesFor) public override {
         Proposal storage proposal = proposals[proposalId];
 
         require(proposal.deadline != 0, "Proposal is not started");
@@ -138,10 +124,7 @@ contract DAO is Ownable {
         }
     }
 
-    /**
-     * @notice finishes the proposal with id `proposalId`
-     */
-    function finishProposal(uint256 proposalId) public {
+    function finishProposal(uint256 proposalId) public override {
         Proposal storage proposal = proposals[proposalId];
 
         require(proposal.deadline != 0, "Proposal not found");
@@ -172,48 +155,30 @@ contract DAO is Ownable {
         delete proposals[proposalId];
     }
 
-    /**
-     * @notice Transfers chairman grants to a `_chairman`
-     */
-    function changeChairman(address _chairman) public onlyChairman {
+    function changeChairman(address _chairman) public override onlyChairman {
         require(_chairman != address(0), "Should not be zero address");
         chairman = _chairman;
     }
 
-    /**
-     * @notice Sets the minimum quorum
-     */
-    function setMinimumQuorum(uint256 _minimumQuorum) public onlyOwner {
+    function setMinimumQuorum(uint256 _minimumQuorum) public override onlyOwner {
         require(_minimumQuorum <= 100, "Minimum quorum can not be > 100");
         minimumQuorum = _minimumQuorum;
     }
 
-    /**
-     * @notice Sets the debating period duration
-     */
-    function setDebatingPeriodDuration(uint256 _debatingPeriodDuration) public onlyOwner {
+    function setDebatingPeriodDuration(uint256 _debatingPeriodDuration) public override onlyOwner {
         debatingPeriodDuration = _debatingPeriodDuration;
     }
 
-    /**
-     * @return A description of a proposal with the id `proposalId`
-     */
-    function description(uint256 proposalId) public view returns (string memory) {
+    function description(uint256 proposalId) public override view returns (string memory) {
         require(proposals[proposalId].recipient != address(0), "Proposal not found");
         return proposals[proposalId].description;
     }
 
-    /**
-     * @return The address of the staking contract
-     */
-    function stakingContractAddress() public view returns (address) {
+    function stakingContractAddress() public override view returns (address) {
         return address(staking);
     }
 
-    /**
-     * @return Whether a given EOA is participating in proposals
-     */
-    function isParticipant(address stakeholder) public view returns (bool) {
+    function isParticipant(address stakeholder) public override view returns (bool) {
         return proposalCounters[stakeholder] > 0;
     }
 }

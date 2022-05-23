@@ -2,19 +2,17 @@
 
 pragma solidity ^0.8.0;
 
-import "./ACDMToken.sol";
+import "./interface/ERC20BurnableMintable.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router01.sol";
 
-//todo arefev: add comments
-//todo arefev: use safeTransfer
-//todo arefev: use fuzzing to test this
-//todo arefev: Uniswap router address = 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D
+//todo arefev  uint256 amount = msg.value / weiPerDecimal; can it reach zero?
 //todo arefev: необязательно быть зарегистрированным для взаимодействия с платформой => кто сказал?
-//todo arefev: https://docs.uniswap.org/protocol/V2/guides/smart-contract-integration/quick-start#writing-tests
-//todo arefev: I can create uniswap pair via the Factory contract (in a Staking contract we should create XXXToken/ETH pair)
-contract ACDMPlatform is Ownable {
+contract ACDMPlatform is Ownable, ReentrancyGuard {
     using Counters for Counters.Counter;
 
     enum Round {TRADE, SALE}
@@ -99,7 +97,9 @@ contract ACDMPlatform is Ownable {
 
     IUniswapV2Router01 private uniswapRouter;
 
-    ACDMToken private acdmToken;
+    ERC20BurnableMintable private acdmToken;
+
+    ERC20Burnable private xxxToken;
 
     address[] private path;
 
@@ -135,13 +135,14 @@ contract ACDMPlatform is Ownable {
         uint256 _secondReferrerSaleFee,
         uint256 _referrerTradeFee
     ) public Ownable() {
+        dao = _dao;
         roundDuration = _roundDuration;
         firstReferrerSaleFee = _firstReferrerSaleFee;
         secondReferrerSaleFee = _secondReferrerSaleFee;
         referrerTradeFee = _referrerTradeFee;
-        dao = _dao;
-        acdmToken = ACDMToken(_acdmToken);
+        acdmToken = ERC20BurnableMintable(_acdmToken);
         uniswapRouter = IUniswapV2Router01(_uniswapRouter);
+        xxxToken = ERC20Burnable(_xxxToken);
         tokensIssued = 100_000 * 10 ** acdmToken.decimals();
         //`**` has priority over `*`
         currentTokenPrice = 10_000_000_000_000;
@@ -158,9 +159,9 @@ contract ACDMPlatform is Ownable {
     /**
      * @dev this is required because uniswap router can return leftover ethers after the swap
      */
-    receive() external payable {
-        //do nothing
-    }
+    /* solhint-disable no-empty-blocks */
+    receive() external payable {}
+    /* solhint-disable no-empty-blocks */
 
     /**
      * @notice creates a new order for selling ACDM tokens
@@ -168,14 +169,14 @@ contract ACDMPlatform is Ownable {
      * @param price is the price in wei per ONE token
      */
     function putOrder(uint256 amount, uint256 price) public onlyRegistered {
-        switchRoundIfRequired();
+        _switchRoundIfRequired();
         require(currentRound == Round.TRADE, "Not a 'Trade' round");
         require(amount > 0, "Amount can't be 0");
         require(price > 0, "Price can't be 0");
         require(acdmToken.balanceOf(msg.sender) >= amount, "Not enough balance");
         require(acdmToken.allowance(msg.sender, address(this)) >= amount, "Not enough allowance");
 
-        acdmToken.transferFrom(msg.sender, address(this), amount);
+        SafeERC20.safeTransferFrom(acdmToken, msg.sender, address(this), amount);
         uint256 orderId = orderIdGenerator.current();
         orders[orderId] = Order(amount, msg.sender, price);
         orderIdGenerator.increment();
@@ -184,7 +185,7 @@ contract ACDMPlatform is Ownable {
     }
 
     function cancelOrder(uint256 orderId) public onlyRegistered {
-        switchRoundIfRequired();
+        _switchRoundIfRequired();
         require(currentRound == Round.TRADE, "Not a 'Trade' round");
         require(orders[orderId].amount > 0, "Order does not exist");
         require(orders[orderId].owner == msg.sender, "Not the order owner");
@@ -192,7 +193,7 @@ contract ACDMPlatform is Ownable {
         uint256 amount = orders[orderId].amount;
         //prevent re-entrancy
         delete orders[orderId];
-        acdmToken.transfer(msg.sender, amount);
+        SafeERC20.safeTransfer(acdmToken, msg.sender, amount);
 
         emit CancelOrder(orderId);
     }
@@ -200,8 +201,8 @@ contract ACDMPlatform is Ownable {
     /**
      * @notice Buy for the 'Trade' round
      */
-    function buy(uint256 orderId) public onlyRegistered {
-        switchRoundIfRequired();
+    function buy(uint256 orderId) public payable onlyRegistered nonReentrant {
+        _switchRoundIfRequired();
         require(currentRound == Round.TRADE, "Not a 'Trade' round");
 
         Order storage order = orders[orderId];
@@ -209,7 +210,6 @@ contract ACDMPlatform is Ownable {
 
         uint256 weiPerDecimal = order.price / (10 ** acdmToken.decimals());
         uint256 amount = msg.value / weiPerDecimal;
-        //todo arefev: can it reach zero?
         require(amount > 0, "Too low msg.value");
 
         if (order.amount < amount) {
@@ -218,7 +218,7 @@ contract ACDMPlatform is Ownable {
             amount = order.amount;
         }
 
-        acdmToken.transfer(msg.sender, amount);
+        SafeERC20.safeTransfer(acdmToken, msg.sender, amount);
         order.amount -= amount;
         tradeVolume += amount;
         _payReferrals(amount, weiPerDecimal);
@@ -235,8 +235,8 @@ contract ACDMPlatform is Ownable {
     /**
      * @notice Buy for the 'Sale' round
      */
-    function buy() public onlyRegistered {
-        switchRoundIfRequired();
+    function buy() public payable onlyRegistered nonReentrant {
+        _switchRoundIfRequired();
         require(currentRound == Round.SALE, "Not a 'Sale' round");
 
         uint256 weiPerDecimal = currentTokenPrice / (10 ** acdmToken.decimals());
@@ -251,7 +251,7 @@ contract ACDMPlatform is Ownable {
         }
 
         tokensSold += amount;
-        acdmToken.transfer(msg.sender, amount);
+        SafeERC20.safeTransfer(acdmToken, msg.sender, amount);
         _payReferrals(amount, weiPerDecimal);
 
         emit SaleOrder(msg.sender, amount);
@@ -266,11 +266,13 @@ contract ACDMPlatform is Ownable {
     /**
      * @param sendToOwner: if `true` then send accrued fees to the contract's owner; if `false` then buy XXXTokens and burn them
      */
-    function spendFees(bool sendToOwner) public onlyDAO {
+    function spendFees(bool sendToOwner) public onlyDAO nonReentrant {
         if (sendToOwner) {
             payable(owner()).transfer(address(this).balance);
         } else {
-            uniswapRouter.swapExactETHForTokens{value : address(this).balance}(0, path, address(this), block.timestamp + 15);
+            uint256[] memory amounts =
+                uniswapRouter.swapExactETHForTokens{value : address(this).balance}(0, path, address(this), block.timestamp + 15);
+            xxxToken.burn(amounts[2]);
         }
     }
 
@@ -290,7 +292,7 @@ contract ACDMPlatform is Ownable {
         referrerTradeFee = _referrerTradeFee;
     }
 
-    function switchRoundIfRequired() internal {
+    function _switchRoundIfRequired() internal {
         if (block.timestamp < roundDeadline && (Round.SALE != currentRound || tokensIssued != tokensSold)) {
             return;
         }

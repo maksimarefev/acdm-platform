@@ -2,10 +2,12 @@
 
 pragma solidity ^0.8.0;
 
+import "./interface/IDAO.sol";
+import "./interface/IStaking.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "./DAO.sol";
 
-contract Staking {
+contract Staking is IStaking, Ownable {
 
     /**
      * @dev Represents a stakeholder
@@ -21,45 +23,23 @@ contract Staking {
 
     IERC20 public stakingToken;
 
-    /**
-     * @dev A mapping "stakholder address => Stakeholder"
-     */
-    mapping(address => Stakeholder) stakeholders;
+    uint256 public override rewardPercentage;
 
-    /**
-     * @dev The reward percentage
-     */
-    uint8 public rewardPercentage;
+    uint256 public override rewardPeriod;
 
-    /**
-     * @dev The reward period in seconds
-     */
-    uint256 public rewardPeriod;
+    uint256 public override stakeWithdrawalTimeout;
 
-    /**
-     * @dev The stake withdrawal timeout in seconds
-     */
-    uint256 public stakeWithdrawalTimeout;
-
-    /**
-     * @dev Total value locked
-     */
-    uint256 public totalStake;
-
-    /**
-     * @dev Contract owner address
-     */
-    address public owner;
+    uint256 public override totalStake;
 
     /**
      * @dev The DAO which uses this contract to perform voting
      */
-    DAO private dao; //todo arefev: interface;
+    IDAO private dao;
 
-    modifier onlyOwner() {
-        require(msg.sender == owner, "Caller is not the owner");
-        _;
-    }
+    /**
+     * @dev A mapping "stakholder address => Stakeholder"
+     */
+    mapping(address => Stakeholder) private stakeholders;
 
     modifier onlyDAO() {
         require(msg.sender == address(dao), "Caller is not the DAO");
@@ -69,25 +49,20 @@ contract Staking {
     constructor (
         address _stakingToken,
         address _rewardToken,
-        uint8 _rewardPercentage,
+        uint256 _rewardPercentage,
         uint256 _rewardPeriod,
         uint256 _stakeWithdrawalTimeout,
         address _dao
-    ) public {
-        owner = msg.sender;
+    ) public Ownable() {
         setRewardPercentage(_rewardPercentage);
         setRewardPeriod(_rewardPeriod);
         setStakeWithdrawalTimeout(_stakeWithdrawalTimeout);
-        dao = DAO(_dao);
+        dao = IDAO(_dao);
         stakingToken = IERC20(_stakingToken);
         rewardToken = IERC20(_rewardToken);
     }
 
-    /**
-     * @notice Transfers the `amount` of tokens from `msg.sender` address to the StakingContract address
-     * @param amount the amount of tokens to stake
-     */
-    function stake(uint256 amount) external {
+    function stake(uint256 amount) external override {
         Stakeholder storage stakeholder = stakeholders[msg.sender];
 
         _updateReward();
@@ -99,10 +74,7 @@ contract Staking {
         require(stakingToken.transferFrom(msg.sender, address(this), amount), "Reward token transfer failed");
     }
 
-    /**
-     * @notice Transfers the reward tokens if any to the `msg.sender` address
-     */
-    function claim() external {
+    function claim() external override {
         Stakeholder storage stakeholder = stakeholders[msg.sender];
 
         _updateReward();
@@ -115,10 +87,7 @@ contract Staking {
         require(rewardToken.transfer(msg.sender, reward), "Reward token transfer failed");
     }
 
-    /**
-     * @notice Transfers staked tokens if any to the `msg.sender` address
-     */
-    function unstake() external {
+    function unstake() external override {
         Stakeholder storage stakeholder = stakeholders[msg.sender];
 
         require(stakeholder.stake > 0, "The caller has nothing at stake");
@@ -134,57 +103,27 @@ contract Staking {
         require(stakingToken.transfer(msg.sender, amount), "Staking token transfer failed");
     }
 
-
-    /**
-     * @notice Sets the reward percentage
-     * @param _rewardPercentage is the reward percentage to be set
-     */
-    function setRewardPercentage(uint8 _rewardPercentage) public onlyOwner {
+    function setRewardPercentage(uint256 _rewardPercentage) public override onlyOwner {
         require(_rewardPercentage > 0, "Percentage can not be 0");
         require(_rewardPercentage < 100, "Percentage can not exceed 100%");
         rewardPercentage = _rewardPercentage;
     }
 
-    /**
-     * @notice Sets the reward period
-     * @param _rewardPeriod is the reward period to be set
-     */
-    function setRewardPeriod(uint256 _rewardPeriod) public onlyOwner {
+    function setRewardPeriod(uint256 _rewardPeriod) public override onlyOwner {
         require(_rewardPeriod > 0, "Reward period can not be zero");
         rewardPeriod = _rewardPeriod;
     }
 
-    /**
-     * @notice Sets the stake withdrawal timeout
-     * @param _stakeWithdrawalTimeout is the stake withdrawal timeout to be set
-     */
-    function setStakeWithdrawalTimeout(uint256 _stakeWithdrawalTimeout) public onlyDAO {
+    function setStakeWithdrawalTimeout(uint256 _stakeWithdrawalTimeout) public override onlyDAO {
         stakeWithdrawalTimeout = _stakeWithdrawalTimeout;
     }
 
-    /**
-     * @notice Returns the total amount of staked tokens for the `stakeholder`
-     * @param stakeholder is the address of the stakeholder
-     * @return the total amount of staked tokens for the `stakeholder`
-     */
-    function getStake(address stakeholder) public view returns (uint256) {
+    function getStake(address stakeholder) public override view returns (uint256) {
         return stakeholders[stakeholder].stake;
     }
 
-    /**
-     * @return todo arefev: description
-     */
-    function daoAddress() public view returns (address) {
+    function daoAddress() public override view returns (address) {
         return address(dao);
-    }
-
-    /**
-     * @notice Transfers ownership of the StakingContract to `to` address
-     * @param to is the address which should receive an ownership
-     */
-    function transferOwnership(address to) external onlyOwner {
-        require(to != address(0), "The zero address is not allowed");
-        owner = to;
     }
 
     function _updateReward() internal {
