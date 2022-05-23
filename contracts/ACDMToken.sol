@@ -25,7 +25,7 @@ contract ACDMToken is ERC20Burnable, Mintable {
     }
 
     //todo arefev: seems like the platform should be the minter
-    function mint(uint256 amount, address receiver) public onlyMinter() {
+    function mint(uint256 amount, address receiver) public override onlyMinter() {
         require(receiver != address(0), "Address can't be 0");
         _mint(receiver, amount);
     }

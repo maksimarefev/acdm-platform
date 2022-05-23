@@ -19,7 +19,7 @@ contract DAO is Ownable {
         uint256 votesFor;
         uint256 votesAgainst;
         uint256 deadline;
-        address[] voters;
+        address[] voters; //todo arefev: mapping is required
     }
 
     /**
@@ -56,6 +56,11 @@ contract DAO is Ownable {
      * @dev That counter is used to determine whether a stakeholder is currently participating in proposals
      */
     mapping(address => uint256) private proposalCounters;
+
+    /**
+     * @dev todo arefev: description
+     */
+    mapping(uint256 => mapping(address => bool)) private proposalsToVoters; //since the compiler does not allow us to assign structs with nested mappings :(
 
     /**
      * @dev Emitted when a proposal was successfully finished
@@ -117,12 +122,14 @@ contract DAO is Ownable {
 
         require(proposal.deadline != 0, "Proposal is not started");
         require(proposal.deadline > block.timestamp, "Proposal is finished");
-        require(proposal.voters[msg.sender] != address(0), "Already voted");
+        require(!proposalsToVoters[proposalId][msg.sender], "Already voted");
 
         uint256 balance = staking.getStake(msg.sender);
         require(balance > 0, "Not a stakeholder");
 
-        proposal.voters[msg.sender] = true;
+        proposalsToVoters[proposalId][msg.sender] = true;
+        proposalCounters[msg.sender] += 1;
+        proposal.voters.push(msg.sender);
 
         if (votesFor) {
             proposal.votesFor += balance;
@@ -141,7 +148,7 @@ contract DAO is Ownable {
         require(block.timestamp >= proposal.deadline, "Proposal is still in progress");
 
         if (proposal.votesFor == 0 && proposal.votesAgainst == 0) {
-            emit ProposalFailed("No votes for proposal");
+            emit ProposalFailed(proposalId, proposal.description, "No votes for proposal");
         } else if ((proposal.votesFor + proposal.votesAgainst) * 100 / staking.totalStake() >= minimumQuorum) {
             if (proposal.votesFor > proposal.votesAgainst) {
                 (bool success,) = proposal.recipient.call{value : 0}(proposal.data);
@@ -159,6 +166,7 @@ contract DAO is Ownable {
         }
 
         for (uint256 i = 0; i < proposal.voters.length; i++) {
+            delete proposalsToVoters[proposalId][proposal.voters[i]];
             proposalCounters[proposal.voters[i]] -= 1;
         }
         delete proposals[proposalId];
