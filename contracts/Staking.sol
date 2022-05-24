@@ -19,9 +19,9 @@ contract Staking is IStaking, Ownable {
         uint256 rewardUpdateDate;
     }
 
-    IERC20 public rewardToken; //todo arefev: public?
+    address public override rewardToken;
 
-    IERC20 public stakingToken;
+    address public override stakingToken;
 
     uint256 public override rewardPercentage;
 
@@ -31,10 +31,7 @@ contract Staking is IStaking, Ownable {
 
     uint256 public override totalStake;
 
-    /**
-     * @dev The DAO which uses this contract to perform voting
-     */
-    IDAO private dao;
+    address public override dao;
 
     /**
      * @dev A mapping "stakholder address => Stakeholder"
@@ -56,10 +53,10 @@ contract Staking is IStaking, Ownable {
     ) public Ownable() {
         setRewardPercentage(_rewardPercentage);
         setRewardPeriod(_rewardPeriod);
-        setStakeWithdrawalTimeout(_stakeWithdrawalTimeout);
-        dao = IDAO(_dao);
-        stakingToken = IERC20(_stakingToken);
-        rewardToken = IERC20(_rewardToken);
+        stakeWithdrawalTimeout = _stakeWithdrawalTimeout;
+        dao = _dao;
+        stakingToken = _stakingToken;
+        rewardToken = _rewardToken;
     }
 
     function stake(uint256 amount) external override {
@@ -71,7 +68,7 @@ contract Staking is IStaking, Ownable {
         totalStake += amount;
 
         stakeholder.lastStakeDate = block.timestamp;
-        require(stakingToken.transferFrom(msg.sender, address(this), amount), "Reward token transfer failed");
+        require(IERC20(stakingToken).transferFrom(msg.sender, address(this), amount), "Staking token transfer failed");
     }
 
     function claim() external override {
@@ -84,23 +81,23 @@ contract Staking is IStaking, Ownable {
         require(reward > 0, "No reward for the caller");
 
         stakeholder.reward = 0;
-        require(rewardToken.transfer(msg.sender, reward), "Reward token transfer failed");
+        require(IERC20(rewardToken).transfer(msg.sender, reward), "Reward token transfer failed");
     }
 
     function unstake() external override {
         Stakeholder storage stakeholder = stakeholders[msg.sender];
+        uint256 stake = stakeholder.stake;
 
-        require(stakeholder.stake > 0, "The caller has nothing at stake");
+        require(stake > 0, "The caller has nothing at stake");
 
         uint256 lastStakeDate = stakeholder.lastStakeDate;
         require(block.timestamp - lastStakeDate >= stakeWithdrawalTimeout, "Timeout is not met");
-        require(!dao.isParticipant(msg.sender), "A proposal participant");
+        require(!IDAO(dao).isParticipant(msg.sender), "A proposal participant");
 
         _updateReward();
-        uint256 amount = stakeholder.stake;
         stakeholder.stake = 0;
-        totalStake -= amount;
-        require(stakingToken.transfer(msg.sender, amount), "Staking token transfer failed");
+        totalStake -= stake;
+        require(IERC20(stakingToken).transfer(msg.sender, stake), "Staking token transfer failed");
     }
 
     function setRewardPercentage(uint256 _rewardPercentage) public override onlyOwner {
@@ -120,10 +117,6 @@ contract Staking is IStaking, Ownable {
 
     function getStake(address stakeholder) public override view returns (uint256) {
         return stakeholders[stakeholder].stake;
-    }
-
-    function daoAddress() public override view returns (address) {
-        return address(dao);
     }
 
     function _updateReward() internal {

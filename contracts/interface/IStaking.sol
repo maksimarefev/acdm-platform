@@ -66,7 +66,17 @@ interface IStaking {
     function getStake(address stakeholder) external view returns (uint256);
 
     /**
-     * @notice The DAO address
+     * @dev The reward token which is used to pay stakeholders
      */
-    function daoAddress() external view returns (address);
+    function rewardToken() external view returns (address);
+
+    /**
+     * @dev The staking token which is used by stakeholders to participate
+     */
+    function stakingToken() external view returns (address);
+
+    /**
+     * @dev The DAO which uses this contract to perform voting
+     */
+    function dao() external view returns (address);
 }
