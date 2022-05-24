@@ -1,15 +1,14 @@
 import { expect, use } from "chai";
-import { ethers, artifacts, network } from "hardhat";
+import { ethers, network } from "hardhat";
 import { FakeContract, smock } from "@defi-wonderland/smock";
 import { Staking, Staking__factory } from '../typechain-types';
 import IDAO from "../artifacts/contracts/interface/IDAO.sol/IDAO.json";
-import { Signer, Contract, ContractFactory, Event, BigNumber } from "ethers";
+import { Signer, Contract, BigNumber } from "ethers";
 import ERC20BurnableMintable from "../artifacts/contracts/interface/ERC20BurnableMintable.sol/ERC20BurnableMintable.json";
 
 use(smock.matchers);
 
 describe("Staking", function () {
-    const initialSupply: number = 1_000_000_000_000
     const rewardPercentage: number = 20;
     const rewardingPeriod: number = 10;
     const stakeWithdrawalTimeout: number = 10;
@@ -51,7 +50,17 @@ describe("Staking", function () {
         expect(tokensToStake).to.equal(totalStakeAfter.toNumber() - totalStakeBefore.toNumber());
     })
 
-    //todo arefev: WHAT THE FUCK?
+    it("Should not allow to stake is a transfer of staking tokens failed", async () => {
+        const tokensToStake: number = 100;
+        const aliceAddress: string = await alice.getAddress();
+        const stakingAddress = staking.address;
+        await stakingTokenMock.transferFrom.whenCalledWith(aliceAddress, stakingAddress, tokensToStake).returns(false);
+
+        const stakeTxPromise: Promise<any> = staking.stake(tokensToStake);
+
+        await expect(stakeTxPromise).to.be.revertedWith("Staking token transfer failed");
+    })
+
     it("Should not allow to unstake before the timeout has expired", async () => {
         const tokensToStake: number = 100;
         const stakingAddress = staking.address;
@@ -81,6 +90,35 @@ describe("Staking", function () {
         const aliceStakeAfterUnstake: BigNumber = await staking.getStake(aliceAddress);
 
         expect(tokensToStake).to.equal(aliceStakeBeforeUnstake.toNumber() - aliceStakeAfterUnstake.toNumber());
+    })
+
+    it("Should not allow to unstake if stakeholder is participating in voting", async () => {
+        const tokensToStake: number = 100;
+        const aliceAddress: string = await alice.getAddress();
+        const stakingAddress = staking.address;
+        await stakingTokenMock.transferFrom.whenCalledWith(aliceAddress, stakingAddress, tokensToStake).returns(true);
+        await daoMock.isParticipant.whenCalledWith(aliceAddress).returns(true);
+
+        await staking.stake(tokensToStake);
+        await network.provider.send("evm_increaseTime", [stakeWithdrawalTimeout])
+        const unstakeTxPromise: Promise<any> = staking.unstake();
+
+        await expect(unstakeTxPromise).to.be.revertedWith("A proposal participant");
+    })
+
+    it("Should not allow to unstake if a transfer of staking tokens failed", async () => {
+        const tokensToStake: number = 100;
+        const aliceAddress: string = await alice.getAddress();
+        const stakingAddress = staking.address;
+        await stakingTokenMock.transfer.whenCalledWith(aliceAddress, tokensToStake).returns(false);
+        await stakingTokenMock.transferFrom.whenCalledWith(aliceAddress, stakingAddress, tokensToStake).returns(true);
+        await daoMock.isParticipant.whenCalledWith(aliceAddress).returns(false);
+
+        await staking.stake(tokensToStake);
+        await network.provider.send("evm_increaseTime", [stakeWithdrawalTimeout])
+        const unstakeTxPromise: Promise<any> = staking.unstake();
+
+        await expect(unstakeTxPromise).to.be.revertedWith("Staking token transfer failed");
     })
 
     it("Should not allow to unstake if nothing at stake", async () => {
@@ -199,6 +237,21 @@ describe("Staking", function () {
         expect(rewardTokenMock.transfer).to.be.calledOnceWith(aliceAddress, expectedReward);
     })
 
+    it("Should not allow to claim if a transfer of staking tokens failed", async () => {
+        const tokensToStake: number = 100;
+        const stakingAddress: string = staking.address;
+        const aliceAddress: string = await alice.getAddress();
+        const expectedReward = tokensToStake * rewardPercentage / 100;
+        await rewardTokenMock.transfer.whenCalledWith(aliceAddress, expectedReward).returns(false);
+        await stakingTokenMock.transferFrom.whenCalledWith(aliceAddress, stakingAddress, tokensToStake).returns(true);
+
+        await staking.stake(tokensToStake);
+        await network.provider.send("evm_increaseTime", [rewardingPeriod])
+        const claimTxPromise: Promise<any> = staking.claim();
+
+        await expect(claimTxPromise).to.be.revertedWith("Reward token transfer failed");
+    })
+
     it("Should return the valid owner", async () => {
         const aliceAddress: string = await alice.getAddress();
 
@@ -212,7 +265,7 @@ describe("Staking", function () {
 
         const daoAddress: string = await staking.dao();
 
-        expect(daoAddress).to.equal(daoAddress);
+        expect(expectedDaoAddress).to.equal(daoAddress);
     })
 
     it("Should return the valid stake volume", async () => {
