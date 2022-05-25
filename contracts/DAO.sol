@@ -2,8 +2,8 @@
 
 pragma solidity ^0.8.0;
 
-import "./interface/IStaking.sol";
 import "./interface/IDAO.sol";
+import "./interface/IStaking.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
@@ -29,10 +29,7 @@ contract DAO is IDAO, Ownable {
 
     uint256 public override debatingPeriodDuration;
 
-    /**
-     * @dev Staking contract
-     */
-    IStaking private staking;
+    address public override staking;
 
     /**
      * @dev Used to generate proposal ids
@@ -76,8 +73,8 @@ contract DAO is IDAO, Ownable {
 
     constructor(address _chairman, address _staking, uint256 _minimumQuorum, uint256 _debatingPeriodDuration) public {
         require(_minimumQuorum <= 100, "Minimum quorum can not be > 100");
+        staking = _staking;
         chairman = _chairman;
-        staking = IStaking(_staking);
         minimumQuorum = _minimumQuorum;
         debatingPeriodDuration = _debatingPeriodDuration;
     }
@@ -106,11 +103,11 @@ contract DAO is IDAO, Ownable {
     function vote(uint256 proposalId, bool votesFor) public override {
         Proposal storage proposal = proposals[proposalId];
 
-        require(proposal.deadline != 0, "Proposal is not started");
+        require(proposal.deadline != 0, "Proposal not found");
         require(proposal.deadline > block.timestamp, "Proposal is finished");
         require(!proposalsToVoters[proposalId][msg.sender], "Already voted");
 
-        uint256 balance = staking.getStake(msg.sender);
+        uint256 balance = IStaking(staking).getStake(msg.sender);
         require(balance > 0, "Not a stakeholder");
 
         proposalsToVoters[proposalId][msg.sender] = true;
@@ -132,7 +129,7 @@ contract DAO is IDAO, Ownable {
 
         if (proposal.votesFor == 0 && proposal.votesAgainst == 0) {
             emit ProposalFailed(proposalId, proposal.description, "No votes for proposal");
-        } else if ((proposal.votesFor + proposal.votesAgainst) * 100 / staking.totalStake() >= minimumQuorum) {
+        } else if ((proposal.votesFor + proposal.votesAgainst) * 100 / IStaking(staking).totalStake() >= minimumQuorum) {
             if (proposal.votesFor > proposal.votesAgainst) {
                 (bool success,) = proposal.recipient.call{value : 0}(proposal.data);
 
@@ -172,10 +169,6 @@ contract DAO is IDAO, Ownable {
     function description(uint256 proposalId) public override view returns (string memory) {
         require(proposals[proposalId].recipient != address(0), "Proposal not found");
         return proposals[proposalId].description;
-    }
-
-    function stakingContractAddress() public override view returns (address) {
-        return address(staking);
     }
 
     function isParticipant(address stakeholder) public override view returns (bool) {

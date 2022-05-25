@@ -40,11 +40,6 @@ interface IDAO {
     function description(uint256 proposalId) external view returns (string memory);
 
     /**
-     * @return The address of the staking contract
-     */
-    function stakingContractAddress() external view returns (address);
-
-    /**
      * @return Whether a given EOA is participating in proposals
      */
     function isParticipant(address stakeholder) external view returns (bool);
@@ -63,4 +58,9 @@ interface IDAO {
      * @notice EOA responsible for proposals creation
      */
     function debatingPeriodDuration() external view returns (uint256);
+
+    /**
+     * @notice Staking contract
+     */
+    function staking() external view returns (address);
 }
