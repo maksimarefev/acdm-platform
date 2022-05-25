@@ -49,7 +49,7 @@ contract Staking is IStaking, Ownable {
         uint256 _rewardPercentage,
         uint256 _rewardPeriod,
         uint256 _stakeWithdrawalTimeout,
-        address _dao
+        address _dao //todo arefev: can't do it before the DAO is deployed; use init function or sth
     ) public Ownable() {
         setRewardPercentage(_rewardPercentage);
         setRewardPeriod(_rewardPeriod);

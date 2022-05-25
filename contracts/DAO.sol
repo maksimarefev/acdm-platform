@@ -29,7 +29,7 @@ contract DAO is IDAO, Ownable {
 
     uint256 public override debatingPeriodDuration;
 
-    address public override staking;
+    IStaking public override staking;
 
     /**
      * @dev Used to generate proposal ids
@@ -73,7 +73,7 @@ contract DAO is IDAO, Ownable {
 
     constructor(address _chairman, address _staking, uint256 _minimumQuorum, uint256 _debatingPeriodDuration) public {
         require(_minimumQuorum <= 100, "Minimum quorum can not be > 100");
-        staking = _staking;
+        staking = IStaking(_staking);
         chairman = _chairman;
         minimumQuorum = _minimumQuorum;
         debatingPeriodDuration = _debatingPeriodDuration;
@@ -107,7 +107,7 @@ contract DAO is IDAO, Ownable {
         require(proposal.deadline > block.timestamp, "Proposal is finished");
         require(!proposalsToVoters[proposalId][msg.sender], "Already voted");
 
-        uint256 balance = IStaking(staking).getStake(msg.sender);
+        uint256 balance = staking.getStake(msg.sender);
         require(balance > 0, "Not a stakeholder");
 
         proposalsToVoters[proposalId][msg.sender] = true;
@@ -129,7 +129,7 @@ contract DAO is IDAO, Ownable {
 
         if (proposal.votesFor == 0 && proposal.votesAgainst == 0) {
             emit ProposalFailed(proposalId, proposal.description, "No votes for proposal");
-        } else if ((proposal.votesFor + proposal.votesAgainst) * 100 / IStaking(staking).totalStake() >= minimumQuorum) {
+        } else if ((proposal.votesFor + proposal.votesAgainst) * 100 / staking.totalStake() >= minimumQuorum) {
             if (proposal.votesFor > proposal.votesAgainst) {
                 (bool success,) = proposal.recipient.call{value : 0}(proposal.data);
 

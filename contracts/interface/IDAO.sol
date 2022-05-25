@@ -2,6 +2,8 @@
 
 pragma solidity ^0.8.0;
 
+import "./IStaking.sol";
+
 interface IDAO {
 
     /**
@@ -62,5 +64,5 @@ interface IDAO {
     /**
      * @notice Staking contract
      */
-    function staking() external view returns (address);
+    function staking() external view returns (IStaking);
 }

@@ -17,11 +17,6 @@ const config: HardhatUserConfig = {
           url: "https://eth-rinkeby.alchemyapi.io/v2/" + ALCHEMY_API_KEY,
           chainId: 4,
           accounts: [`0x${PRIVATE_KEY}`]
-        },
-        bsc: {
-            url: "https://speedy-nodes-nyc.moralis.io/20ee2495918fb1d2007707e3/bsc/testnet",
-            chainId: 97,
-            accounts: [`0x${PRIVATE_KEY}`]
         }
     },
     etherscan: {

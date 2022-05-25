@@ -6,6 +6,7 @@
     "max-states-count": "off",
     "not-rely-on-time": "off",
     "avoid-low-level-calls": "off",
-    "no-inline-assembly": "off"
+    "no-inline-assembly": "off",
+    "no-empty-blocks": "off"
   }
 }

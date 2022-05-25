@@ -8,10 +8,9 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
-import "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router01.sol";
+import "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 
-//todo arefev  uint256 amount = msg.value / weiPerDecimal; can it reach zero?
-//todo arefev: необязательно быть зарегистрированным для взаимодействия с платформой => кто сказал?
+//todo arefev: replace `_switchRoundIfRequired` with `startTradeRound` & `startSaleRound`
 contract ACDMPlatform is Ownable, ReentrancyGuard {
     using Counters for Counters.Counter;
 
@@ -82,6 +81,21 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
     address public dao;
 
     /**
+     * @dev Uniswap router
+     */
+    IUniswapV2Router02 public uniswapRouter;
+
+    /**
+     * @dev ACDM token
+     */
+    ERC20BurnableMintable public acdmToken;
+
+    /**
+     * @dev XXX token
+     */
+    ERC20Burnable public xxxToken;
+
+    /**
      * @dev the percentage received by the buyer's referrer's referrer when making a sale
      */
     uint256 public secondReferrerSaleFee;
@@ -94,12 +108,6 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
     mapping(address => bool) private registeredUsers;
 
     Counters.Counter private orderIdGenerator;
-
-    IUniswapV2Router01 private uniswapRouter;
-
-    ERC20BurnableMintable private acdmToken;
-
-    ERC20Burnable private xxxToken;
 
     address[] private path;
 
@@ -115,11 +123,6 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
 
     event ReferralPayment(address indexed referrer, uint256 amount);
 
-    modifier onlyRegistered() {
-        require(registeredUsers[msg.sender], "Caller is not registered");
-        _;
-    }
-
     modifier onlyDAO() {
         require(msg.sender == dao, "Caller is not the DAO");
         _;
@@ -133,7 +136,9 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
         uint256 _roundDuration,
         uint256 _firstReferrerSaleFee,
         uint256 _secondReferrerSaleFee,
-        uint256 _referrerTradeFee
+        uint256 _referrerTradeFee,
+        uint256 _tokensIssued,
+        uint256 _currentTokenPrice
     ) public Ownable() {
         dao = _dao;
         roundDuration = _roundDuration;
@@ -141,14 +146,16 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
         secondReferrerSaleFee = _secondReferrerSaleFee;
         referrerTradeFee = _referrerTradeFee;
         acdmToken = ERC20BurnableMintable(_acdmToken);
-        uniswapRouter = IUniswapV2Router01(_uniswapRouter);
+        uniswapRouter = IUniswapV2Router02(_uniswapRouter);
         xxxToken = ERC20Burnable(_xxxToken);
-        tokensIssued = 100_000 * 10 ** acdmToken.decimals();
+
         //`**` has priority over `*`
-        currentTokenPrice = 10_000_000_000_000;
-        //0.00001 ETH
+        tokensIssued = _tokensIssued * 10 ** acdmToken.decimals();
+
+        currentTokenPrice = _currentTokenPrice;
         acdmToken.mint(tokensIssued, address(this));
         currentRound = Round.SALE;
+        roundDeadline = block.timestamp + roundDuration;
 
         //In Uniswap v2 there are no more direct ETH pairs, all ETH must be converted to WETH first.
         path = new address[](2);
@@ -159,20 +166,19 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
     /**
      * @dev this is required because uniswap router can return leftover ethers after the swap
      */
-    /* solhint-disable no-empty-blocks */
     receive() external payable {}
-    /* solhint-disable no-empty-blocks */
 
     /**
      * @notice creates a new order for selling ACDM tokens
      * @param amount is the amount of tokens (as decimals)
      * @param price is the price in wei per ONE token
      */
-    function putOrder(uint256 amount, uint256 price) public onlyRegistered {
+    function putOrder(uint256 amount, uint256 price) public {
         _switchRoundIfRequired();
         require(currentRound == Round.TRADE, "Not a 'Trade' round");
         require(amount > 0, "Amount can't be 0");
         require(price > 0, "Price can't be 0");
+        require(price / (10 ** acdmToken.decimals()) > 0, "Price is too low");
         require(acdmToken.balanceOf(msg.sender) >= amount, "Not enough balance");
         require(acdmToken.allowance(msg.sender, address(this)) >= amount, "Not enough allowance");
 
@@ -184,14 +190,13 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
         emit PutOrder(orderId, msg.sender, amount, price);
     }
 
-    function cancelOrder(uint256 orderId) public onlyRegistered {
+    function cancelOrder(uint256 orderId) public {
         _switchRoundIfRequired();
         require(currentRound == Round.TRADE, "Not a 'Trade' round");
         require(orders[orderId].amount > 0, "Order does not exist");
         require(orders[orderId].owner == msg.sender, "Not the order owner");
 
         uint256 amount = orders[orderId].amount;
-        //prevent re-entrancy
         delete orders[orderId];
         SafeERC20.safeTransfer(acdmToken, msg.sender, amount);
 
@@ -201,7 +206,7 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
     /**
      * @notice Buy for the 'Trade' round
      */
-    function buy(uint256 orderId) public payable onlyRegistered nonReentrant {
+    function redeemOrder(uint256 orderId) public payable nonReentrant {
         _switchRoundIfRequired();
         require(currentRound == Round.TRADE, "Not a 'Trade' round");
 
@@ -209,13 +214,16 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
         require(order.amount > 0, "Order does not exist");
 
         uint256 weiPerDecimal = order.price / (10 ** acdmToken.decimals());
+        require(msg.value >= weiPerDecimal, "Too low msg.value");
         uint256 amount = msg.value / weiPerDecimal;
-        require(amount > 0, "Too low msg.value");
 
         if (order.amount < amount) {
-            uint256 leftover = (amount - order.amount) * weiPerDecimal;
-            payable(msg.sender).transfer(leftover);
             amount = order.amount;
+        }
+
+        uint256 leftover = msg.value - (amount * weiPerDecimal);
+        if (leftover != 0) {
+            payable(msg.sender).transfer(leftover);
         }
 
         SafeERC20.safeTransfer(acdmToken, msg.sender, amount);
@@ -223,7 +231,7 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
         tradeVolume += amount;
         _payReferrals(amount, weiPerDecimal);
         uint256 referrersPayment = amount * weiPerDecimal * referrerTradeFee * 2 / 100;
-        payable(order.owner).transfer(amount - referrersPayment);
+        payable(order.owner).transfer(msg.value - leftover - referrersPayment);
 
         if (order.amount == 0) {
             delete orders[orderId];
@@ -235,18 +243,21 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
     /**
      * @notice Buy for the 'Sale' round
      */
-    function buy() public payable onlyRegistered nonReentrant {
+    function buy() public payable nonReentrant {
         _switchRoundIfRequired();
         require(currentRound == Round.SALE, "Not a 'Sale' round");
 
         uint256 weiPerDecimal = currentTokenPrice / (10 ** acdmToken.decimals());
+        require(msg.value >= weiPerDecimal, "Too low msg.value");
         uint256 amount = msg.value / weiPerDecimal;
-        require(amount > 0, "Too low msg.value");
 
         uint256 remainingTokens = tokensIssued - tokensSold;
         if (remainingTokens < amount) {
-            uint256 leftover = msg.value - ((amount - remainingTokens) * weiPerDecimal);
             amount = remainingTokens;
+        }
+
+        uint256 leftover = msg.value - (amount * weiPerDecimal);
+        if (leftover != 0) {
             payable(msg.sender).transfer(leftover);
         }
 
@@ -257,26 +268,40 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
         emit SaleOrder(msg.sender, amount);
     }
 
+    /**
+     * @notice registers a new user
+     * @param referrer should be either already registerd user or the zero address
+     */
     function register(address referrer) public {
         require(!registeredUsers[msg.sender], "Already registered");
+
+        if (referrer != address(0)) {
+            require(msg.sender != referrer, "Sender can't be a referrer");
+            require(registeredUsers[referrer], "Referrer is not registered");
+            referrers[msg.sender] = referrer;
+        }
+
         registeredUsers[msg.sender] = true;
-        referrers[msg.sender] = referrer;
     }
 
     /**
      * @param sendToOwner: if `true` then send accrued fees to the contract's owner; if `false` then buy XXXTokens and burn them
      */
     function spendFees(bool sendToOwner) public onlyDAO nonReentrant {
+        uint256 value = address(this).balance;
+
         if (sendToOwner) {
-            payable(owner()).transfer(address(this).balance);
+            payable(owner()).transfer(value);
         } else {
-            uint256[] memory amounts =
-                uniswapRouter.swapExactETHForTokens{value : address(this).balance}(0, path, address(this), block.timestamp + 15);
+            uint256[] memory amounts = uniswapRouter.swapExactETHForTokens{value : value}(
+                0, path, address(this), block.timestamp + 15
+            );
             xxxToken.burn(amounts[2]);
         }
     }
 
     function setRoundDuration(uint256 _roundDuration) public onlyOwner {
+        require(roundDuration > 0, "Can't be zero");
         roundDuration = _roundDuration;
     }
 
@@ -305,8 +330,8 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
             currentRound = Round.TRADE;
         } else {
             tokensSold = 0;
-            currentTokenPrice = currentTokenPrice * 103 / 100 + 4_000_000_000_000;
             //0.000004 eth == 4_000_000_000_000 wei
+            currentTokenPrice = currentTokenPrice * 103 / 100 + 4_000_000_000_000;
 
             if (tradeVolume != 0) {
                 tokensIssued = tradeVolume / currentTokenPrice;
@@ -328,6 +353,10 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
      * @param weiPerDecimal is amount of wei per decimal
      */
     function _payReferrals(uint256 tokensAmount, uint256 weiPerDecimal) internal {
+        if (!registeredUsers[msg.sender]) {
+            return;
+        }
+
         address firstReferrer = referrers[msg.sender];
         address secondReferrer = referrers[firstReferrer];
 
