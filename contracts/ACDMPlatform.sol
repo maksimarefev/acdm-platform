@@ -10,7 +10,6 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 
-//todo arefev: replace `_switchRoundIfRequired` with `startTradeRound` & `startSaleRound`
 contract ACDMPlatform is Ownable, ReentrancyGuard {
     using Counters for Counters.Counter;
 
@@ -128,6 +127,21 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
         _;
     }
 
+    modifier onlyTradeRound() {
+        require(currentRound == Round.TRADE, "Not a 'Trade' round");
+        _;
+    }
+
+    modifier onlySaleRound() {
+        require(currentRound == Round.SALE, "Not a 'Sale' round");
+        _;
+    }
+
+    modifier checkDeadline() {
+        require(block.timestamp < roundDeadline, "Round is over");
+        _;
+    }
+
     constructor(
         address _acdmToken,
         address _uniswapRouter,
@@ -173,9 +187,7 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
      * @param amount is the amount of tokens (as decimals)
      * @param price is the price in wei per ONE token
      */
-    function putOrder(uint256 amount, uint256 price) public {
-        _switchRoundIfRequired();
-        require(currentRound == Round.TRADE, "Not a 'Trade' round");
+    function putOrder(uint256 amount, uint256 price) public onlyTradeRound checkDeadline {
         require(amount > 0, "Amount can't be 0");
         require(price > 0, "Price can't be 0");
         require(price / (10 ** acdmToken.decimals()) > 0, "Price is too low");
@@ -190,9 +202,7 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
         emit PutOrder(orderId, msg.sender, amount, price);
     }
 
-    function cancelOrder(uint256 orderId) public {
-        _switchRoundIfRequired();
-        require(currentRound == Round.TRADE, "Not a 'Trade' round");
+    function cancelOrder(uint256 orderId) public onlyTradeRound checkDeadline {
         require(orders[orderId].amount > 0, "Order does not exist");
         require(orders[orderId].owner == msg.sender, "Not the order owner");
 
@@ -206,10 +216,7 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
     /**
      * @notice Buy for the 'Trade' round
      */
-    function redeemOrder(uint256 orderId) public payable nonReentrant {
-        _switchRoundIfRequired();
-        require(currentRound == Round.TRADE, "Not a 'Trade' round");
-
+    function redeemOrder(uint256 orderId) public payable onlyTradeRound checkDeadline nonReentrant {
         Order storage order = orders[orderId];
         require(order.amount > 0, "Order does not exist");
 
@@ -243,9 +250,8 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
     /**
      * @notice Buy for the 'Sale' round
      */
-    function buy() public payable nonReentrant {
-        _switchRoundIfRequired();
-        require(currentRound == Round.SALE, "Not a 'Sale' round");
+    function buy() public payable onlySaleRound checkDeadline nonReentrant {
+        require(tokensSold != tokensIssued, "No more tokens");
 
         uint256 weiPerDecimal = currentTokenPrice / (10 ** acdmToken.decimals());
         require(msg.value >= weiPerDecimal, "Too low msg.value");
@@ -285,6 +291,46 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
     }
 
     /**
+     * @notice Starts the `Trade` round
+     */
+    function startTradeRound() external onlyOwner {
+        require(currentRound == Round.SALE && block.timestamp >= roundDeadline, "Not ready yet");
+
+        if (tokensIssued != tokensSold) {
+            acdmToken.burn(tokensIssued - tokensSold);
+        }
+
+        tradeVolume = 0;
+        currentRound = Round.TRADE;
+        roundDeadline = block.timestamp + roundDuration;
+
+        emit RoundSwitch(currentRound);
+    }
+
+    /**
+     * @notice Starts the `Sale` round
+     */
+    function startSaleRound() external onlyOwner {
+        require(currentRound == Round.TRADE && (block.timestamp >= roundDeadline || tokensIssued == tokensSold), "Not ready yet");
+
+        tokensSold = 0;
+        //0.000004 eth == 4_000_000_000_000 wei
+        currentTokenPrice = currentTokenPrice * 103 / 100 + 4_000_000_000_000;
+
+        if (tradeVolume != 0) {
+            tokensIssued = tradeVolume / currentTokenPrice;
+            acdmToken.mint(tokensIssued, address(this));
+        } else {
+            tokensIssued = 0;
+        }
+
+        currentRound = Round.SALE;
+        roundDeadline = block.timestamp + roundDuration;
+
+        emit RoundSwitch(currentRound);
+    }
+
+    /**
      * @param sendToOwner: if `true` then send accrued fees to the contract's owner; if `false` then buy XXXTokens and burn them
      */
     function spendFees(bool sendToOwner) public onlyDAO nonReentrant {
@@ -315,37 +361,6 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
 
     function setReferrerTradeFee(uint256 _referrerTradeFee) public onlyOwner {
         referrerTradeFee = _referrerTradeFee;
-    }
-
-    function _switchRoundIfRequired() internal {
-        if (block.timestamp < roundDeadline && (Round.SALE != currentRound || tokensIssued != tokensSold)) {
-            return;
-        }
-
-        if (currentRound == Round.SALE) {
-            if (tokensIssued != tokensSold) {
-                acdmToken.burn(tokensIssued - tokensSold);
-            }
-            tradeVolume = 0;
-            currentRound = Round.TRADE;
-        } else {
-            tokensSold = 0;
-            //0.000004 eth == 4_000_000_000_000 wei
-            currentTokenPrice = currentTokenPrice * 103 / 100 + 4_000_000_000_000;
-
-            if (tradeVolume != 0) {
-                tokensIssued = tradeVolume / currentTokenPrice;
-                acdmToken.mint(tokensIssued, address(this));
-            } else {
-                tokensIssued = 0;
-            }
-
-            currentRound = Round.SALE;
-        }
-
-        roundDeadline = block.timestamp + roundDuration;
-
-        emit RoundSwitch(currentRound);
     }
 
     /**
