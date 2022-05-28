@@ -1,5 +1,5 @@
 import { expect, use } from "chai";
-import { ethers, network, waffle } from "hardhat";
+import { ethers, network } from "hardhat";
 import { Signer, Contract, BigNumber } from "ethers";
 import { FakeContract, smock } from "@defi-wonderland/smock";
 import IDAO from "../artifacts/contracts/interface/IDAO.sol/IDAO.json";
@@ -23,8 +23,9 @@ describe.only("ACDMPlatform", function() {
     const secondReferrerSaleFee: number = 3;
     const currentTokenPrice: number = 10_000_000;
 
-    let bob: Signer;
     let alice: Signer;
+    let bob: Signer;
+    let malory: Signer;
     let acdmPlatform: ACDMPlatform;
     let daoMock: FakeContract<Contract>;
     let xxxTokenMock: FakeContract<Contract>;
@@ -50,7 +51,7 @@ describe.only("ACDMPlatform", function() {
     }
 
     beforeEach("Deploying contract", async function () {
-        [alice, bob] = await ethers.getSigners();
+        [alice, bob, malory] = await ethers.getSigners();
 
         const ACDMPlatformFactory: ACDMPlatform__factory =
             (await ethers.getContractFactory("ACDMPlatform")) as ACDMPlatform__factory;
@@ -92,6 +93,18 @@ describe.only("ACDMPlatform", function() {
             await expect(putOrderTxPromise).to.be.revertedWith("Not a 'Trade' round");
         });
 
+        it("Should fail if round is over", async function() {
+            const amount: number = 0;
+            const price: number = 1;
+
+            await network.provider.send("evm_increaseTime", [roundDuration]);
+            await acdmPlatform.startTradeRound();
+            await network.provider.send("evm_increaseTime", [roundDuration]);
+            const putOrderTxPromise: Promise<any> = acdmPlatform.putOrder(amount, price);
+
+            await expect(putOrderTxPromise).to.be.revertedWith("Round is over");
+        });
+
         it("Should fail if amount is 0", async function() {
             const amount: number = 0;
             const price: number = 1;
@@ -103,7 +116,7 @@ describe.only("ACDMPlatform", function() {
             await expect(putOrderTxPromise).to.be.revertedWith("Amount can't be 0");
         });
 
-        it("Should fail if price is 0", async function() {
+        it("Should fail if price is too low", async function() {
             const amount: number = 1;
             const price: number = 0;
 
@@ -111,7 +124,7 @@ describe.only("ACDMPlatform", function() {
             await acdmPlatform.startTradeRound();
             const putOrderTxPromise: Promise<any> = acdmPlatform.putOrder(amount, price);
 
-            await expect(putOrderTxPromise).to.be.revertedWith("Price can't be 0");
+            await expect(putOrderTxPromise).to.be.revertedWith("Price is too low");
         });
 
         it("Should fail if a sender has not enough acdm tokens", async function() {
@@ -199,6 +212,17 @@ describe.only("ACDMPlatform", function() {
             await expect(cancelOrderTxPromise).to.be.revertedWith("Order does not exist");
         });
 
+        it("Should fail if order does not exists", async function() {
+            const orderId: number = 0;
+
+            await network.provider.send("evm_increaseTime", [roundDuration]);
+            await acdmPlatform.startTradeRound();
+            await network.provider.send("evm_increaseTime", [roundDuration]);
+            const cancelOrderTxPromise: Promise<any> = acdmPlatform.cancelOrder(orderId);
+
+            await expect(cancelOrderTxPromise).to.be.revertedWith("Round is over");
+        });
+
         it("Should fail the sender is not the owner", async function() {
             const orderId: number = 0;
             const amount: number = 1;
@@ -262,6 +286,17 @@ describe.only("ACDMPlatform", function() {
             await expect(redeemOrderTxPromise).to.be.revertedWith("Order does not exist");
         });
 
+        it("Should fail if order doesn't exists", async function() {
+            const orderId: number = 0;
+
+            await network.provider.send("evm_increaseTime", [roundDuration]);
+            await acdmPlatform.startTradeRound();
+            await network.provider.send("evm_increaseTime", [roundDuration]);
+            const redeemOrderTxPromise: Promise<any> = acdmPlatform.redeemOrder(orderId);
+
+            await expect(redeemOrderTxPromise).to.be.revertedWith("Round is over");
+        });
+
         it("Should fail if not enough msg.value was given", async function() {
             const orderId: number = 0;
             const amount: number = 1;
@@ -323,7 +358,7 @@ describe.only("ACDMPlatform", function() {
             const orderId: number = 0;
             const amount: number = 1;
             const price: number = (ethers.utils.parseEther("0.000001")).toNumber();
-            const value: number = (ethers.utils.parseEther("0.000001")).toNumber();
+            const value: number = price;
             const aliceAddress: string = await alice.getAddress();
             await acdmTokenMock.transfer.whenCalledWith(aliceAddress, amount).returns(true);
 
@@ -351,6 +386,15 @@ describe.only("ACDMPlatform", function() {
             const buyTxPromise: Promise<any> = acdmPlatform.buy({value: value});
 
             await expect(buyTxPromise).to.be.revertedWith("Too low msg.value");
+        });
+
+        it("Should fail if not enough value given", async function() {
+            const value: number = 0;
+
+            await network.provider.send("evm_increaseTime", [roundDuration]);
+            const buyTxPromise: Promise<any> = acdmPlatform.buy({value: value});
+
+            await expect(buyTxPromise).to.be.revertedWith("Round is over");
         });
 
         it("Should fail if acdm tokens transfer failed", async function() {
@@ -392,6 +436,19 @@ describe.only("ACDMPlatform", function() {
             const buyTxPromise: Promise<any> = acdmPlatform.buy({value: value});
 
             await expect(buyTxPromise).to.emit(acdmPlatform, "SaleOrder").withArgs(aliceAddress, amount);
+        });
+
+        it("Should fail if no more tokens available", async function() {
+            const acdmTokenDecimals: BigNumber = await acdmTokenMock.decimals();
+            const amount: BigNumber = BigNumber.from(tokensIssued).mul(BigNumber.from(10).pow(acdmTokenDecimals));
+            const aliceAddress: string = await alice.getAddress();
+            const value: BigNumber = amount.mul(await acdmPlatform.currentTokenPrice());
+            await acdmTokenMock.transfer.whenCalledWith(aliceAddress, amount).returns(true);
+
+            await acdmPlatform.buy({value: value});
+            const buyTxPromise: Promise<any> = acdmPlatform.buy({value: value});
+
+            await expect(buyTxPromise).to.be.revertedWith("No more tokens");
         });
    });
 
@@ -451,7 +508,7 @@ describe.only("ACDMPlatform", function() {
             await network.provider.send("evm_increaseTime", [roundDuration]);
             await acdmPlatform.startTradeRound();
             await putOrder(amount, price, alice);
-            const redeemOrderTx: any = await acdmPlatform.redeemOrder(orderId, {value: value});
+            await acdmPlatform.redeemOrder(orderId, {value: value});
             const ownerBalanceBefore: BigNumber = await alice.getBalance();
             await acdmPlatform.connect(daoMock.wallet).spendFees(true);
             const ownerBalanceAfter: BigNumber = await alice.getBalance();
@@ -469,11 +526,8 @@ describe.only("ACDMPlatform", function() {
             const orderId: number = 0;
             const amount: number = 1;
             const price: number = (ethers.utils.parseEther("0.000001")).toNumber();
-            const weiPerDecimal: number =
-                BigNumber.from(price).div(BigNumber.from(10).pow(await acdmTokenMock.decimals())).toNumber();
             const value: number = (ethers.utils.parseEther("0.000001")).toNumber();
             const aliceAddress: string = await alice.getAddress();
-            const expectedFee: number = amount * weiPerDecimal * referrerTradeFee * 2 / 100;
             await acdmTokenMock.transfer.whenCalledWith(aliceAddress, amount).returns(true);
             const amountOutMin: number = 0;
             const path: string[] = [await uniswapRouterMock.WETH(), xxxTokenMock.address];
@@ -484,7 +538,7 @@ describe.only("ACDMPlatform", function() {
             await network.provider.send("evm_increaseTime", [roundDuration]);
             await acdmPlatform.startTradeRound();
             await putOrder(amount, price, alice);
-            const redeemOrderTx: any = await acdmPlatform.redeemOrder(orderId, {value: value});
+            await acdmPlatform.redeemOrder(orderId, {value: value});
             const nextBlockTimestamp: number = (await getBlockTS()) + 1; //in order to make a deadline predictable
             const deadline: number = nextBlockTimestamp + 15;
             await network.provider.send("evm_setNextBlockTimestamp", [nextBlockTimestamp])
@@ -524,7 +578,6 @@ describe.only("ACDMPlatform", function() {
 
         it("Should proceed if all tokens were sold during the SALE round", async function() {
             const tokensIssuedDecimals: BigNumber = await acdmPlatform.tokensIssued();
-            const weiPerDecimal: BigNumber = await weiPerDecimalInSaleRound();
             const value: BigNumber = tokensIssuedDecimals.mul(tokensIssuedDecimals);
             const aliceAddress: string = await alice.getAddress();
             network.config.gasPrice = 0;
@@ -543,7 +596,6 @@ describe.only("ACDMPlatform", function() {
     });
 
     describe("startSaleRound", async function() {
-
          it("Should fail if current round is SALE", async function() {
             const startSaleRoundTxPromise: Promise<any> = acdmPlatform.startSaleRound();
 
@@ -574,7 +626,7 @@ describe.only("ACDMPlatform", function() {
             await network.provider.send("evm_increaseTime", [roundDuration]);
             await acdmPlatform.startTradeRound();
             await putOrder(amount, tradePrice, alice);
-            const redeemOrderTx: any = await acdmPlatform.redeemOrder(orderId, {value: value});
+            await acdmPlatform.redeemOrder(orderId, {value: value});
             await network.provider.send("evm_increaseTime", [roundDuration]);
             await acdmPlatform.startSaleRound();
 
@@ -587,7 +639,7 @@ describe.only("ACDMPlatform", function() {
             await network.provider.send("evm_increaseTime", [roundDuration]);
             await acdmPlatform.startTradeRound();
             await network.provider.send("evm_increaseTime", [roundDuration]);
-            const startSaleRoundTxPromise: Promise<any> = acdmPlatform.startSaleRound();
+            await acdmPlatform.startSaleRound();
 
             expect(acdmTokenMock.mint).to.have.callCount(0);
          });
@@ -600,6 +652,72 @@ describe.only("ACDMPlatform", function() {
 
             await expect(startSaleRoundTxPromise).to.emit(acdmPlatform, "RoundSwitch").withArgs(1);
          });
+    });
+
+    describe("referral program", async function() {
+        it("Should send referral fees in TRADE round", async function() {
+            const orderId: number = 0;
+            const tokenDecimals: BigNumber = await acdmTokenMock.decimals();
+            const putAmount: number =
+                BigNumber.from(2).mul(BigNumber.from(10).pow(tokenDecimals)).toNumber(); //todo arefev: cre utility function
+            const buyAmount: number = BigNumber.from(10).pow(tokenDecimals).toNumber();
+            const price: number = (ethers.utils.parseEther("0.000001")).toNumber();
+            const value: number = price;
+            const weiPerDecimal: number = BigNumber.from(price).div(BigNumber.from(10).pow(tokenDecimals)).toNumber();
+            const aliceAddress: string = await alice.getAddress();
+            const bobAddress: string = await bob.getAddress();
+            const maloryAddress: string = await malory.getAddress();
+            const feeAmount: number = buyAmount * weiPerDecimal * referrerTradeFee / 100;
+            await acdmTokenMock.transfer.whenCalledWith(aliceAddress, buyAmount).returns(true);
+
+            await acdmPlatform.connect(malory).register(ethers.constants.AddressZero);
+            await acdmPlatform.connect(bob).register(maloryAddress);
+            await acdmPlatform.register(bobAddress);
+            await network.provider.send("evm_increaseTime", [roundDuration]);
+            await acdmPlatform.startTradeRound();
+            await putOrder(putAmount, price, alice);
+            const redeemOrderTxPromise: Promise<any> = acdmPlatform.redeemOrder(orderId, {value: value});
+
+            await expect(redeemOrderTxPromise).to.emit(acdmPlatform, "ReferralPayment").withArgs(bobAddress, feeAmount);
+            await expect(redeemOrderTxPromise).to.emit(acdmPlatform, "ReferralPayment").withArgs(maloryAddress, feeAmount);
+        });
+
+        it("Should send referral fees in SALE round", async function() {
+            const amount: number = BigNumber.from(1).mul(BigNumber.from(10).pow(acdmTokenDecimals)).toNumber();
+            const weiPerDecimal: number = (await weiPerDecimalInSaleRound()).toNumber();
+            const aliceAddress: string = await alice.getAddress();
+            const bobAddress: string = await bob.getAddress();
+            const maloryAddress: string = await malory.getAddress();
+            const value: BigNumber = await acdmPlatform.currentTokenPrice();
+            const fristReferrerFeeAmount: number = amount * weiPerDecimal * firstReferrerSaleFee / 100;
+            const secondReferrerFeeAmount: number = amount * weiPerDecimal * secondReferrerSaleFee / 100;
+            await acdmTokenMock.transfer.whenCalledWith(aliceAddress, amount).returns(true);
+
+            await acdmPlatform.connect(malory).register(ethers.constants.AddressZero);
+            await acdmPlatform.connect(bob).register(maloryAddress);
+            await acdmPlatform.register(bobAddress);
+            const buyTxPromise: Promise<any> = acdmPlatform.buy({ value: value });
+
+            await expect(buyTxPromise).to.emit(acdmPlatform, "ReferralPayment").withArgs(bobAddress, fristReferrerFeeAmount);
+            await expect(buyTxPromise).to.emit(acdmPlatform, "ReferralPayment").withArgs(maloryAddress, secondReferrerFeeAmount);
+        });
+
+        it("Should not send referral fees if there are no referrers", async function() {
+            const orderId: number = 0;
+            const amount: number = 1;
+            const price: number = (ethers.utils.parseEther("0.000001")).toNumber();
+            const value: number = price;
+            const aliceAddress: string = await alice.getAddress();
+            await acdmTokenMock.transfer.whenCalledWith(aliceAddress, amount).returns(true);
+
+            await acdmPlatform.register(ethers.constants.AddressZero);
+            await network.provider.send("evm_increaseTime", [roundDuration]);
+            await acdmPlatform.startTradeRound();
+            await putOrder(amount, price, alice);
+            const redeemOrderTxPromise: Promise<any> = acdmPlatform.redeemOrder(orderId, {value: value});
+
+            await expect(redeemOrderTxPromise).not.to.emit(acdmPlatform, "ReferralPayment");
+        });
     });
 
    describe("setters", async function() {
@@ -619,6 +737,14 @@ describe.only("ACDMPlatform", function() {
                 acdmPlatform.connect(bob).setRoundDuration(newRoundDuration);
 
             await expect(setRoundDurationTxPromise).to.be.revertedWith("Ownable: caller is not the owner");
+        });
+
+        it("Should not allow to set round duration to 0", async function() {
+            const newRoundDuration: number = 0;
+
+            const setRoundDurationTxPromise: Promise<any> = acdmPlatform.setRoundDuration(newRoundDuration);
+
+            await expect(setRoundDurationTxPromise).to.be.revertedWith("Can't be zero");
         });
 
         it("Should allow for the owner to change first referrer sale fee", async function() {
@@ -673,6 +799,21 @@ describe.only("ACDMPlatform", function() {
                 acdmPlatform.connect(bob).setReferrerTradeFee(newReferrerTradeFee);
 
             await expect(setReferrerTradeFeeTxPromise).to.be.revertedWith("Ownable: caller is not the owner");
+        });
+   });
+
+   describe("misc", async function() {
+        it("Should return valid order amount", async function() {
+            const orderId: number = 0;
+            const amount: number = 1;
+            const price: number = (ethers.utils.parseEther("0.000001")).toNumber();
+
+            await network.provider.send("evm_increaseTime", [roundDuration]);
+            await acdmPlatform.startTradeRound();
+            await putOrder(amount, price, alice);
+            const actualOrderAmount: number = (await acdmPlatform.orderAmount(orderId)).toNumber();
+
+            await expect(amount).to.equal(actualOrderAmount);
         });
    });
 });

@@ -189,7 +189,6 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
      */
     function putOrder(uint256 amount, uint256 price) public onlyTradeRound checkDeadline {
         require(amount > 0, "Amount can't be 0");
-        require(price > 0, "Price can't be 0");
         require(price / (10 ** acdmToken.decimals()) > 0, "Price is too low");
         require(acdmToken.balanceOf(msg.sender) >= amount, "Not enough balance");
         require(acdmToken.allowance(msg.sender, address(this)) >= amount, "Not enough allowance");
@@ -346,7 +345,7 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
     }
 
     function setRoundDuration(uint256 _roundDuration) public onlyOwner {
-        require(roundDuration > 0, "Can't be zero");
+        require(_roundDuration > 0, "Can't be zero");
         roundDuration = _roundDuration;
     }
 
@@ -360,6 +359,10 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
 
     function setReferrerTradeFee(uint256 _referrerTradeFee) public onlyOwner {
         referrerTradeFee = _referrerTradeFee;
+    }
+
+    function orderAmount(uint256 orderId) public view returns(uint256) {
+        return orders[orderId].amount;
     }
 
     /**
