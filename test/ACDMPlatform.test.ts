@@ -18,10 +18,10 @@ describe.only("ACDMPlatform", function() {
     const roundDuration: number = 30;
     const referrerTradeFee: number = 5;
     const acdmTokenDecimals: number = 6;
-    const tokensIssued: number = 100_000;
+    const tokensIssued: number = 100;
     const firstReferrerSaleFee: number = 3;
     const secondReferrerSaleFee: number = 3;
-    const currentTokenPrice: number = 10_000_000_000_000;
+    const currentTokenPrice: number = 10_000_000;
 
     let bob: Signer;
     let alice: Signer;
@@ -31,7 +31,7 @@ describe.only("ACDMPlatform", function() {
     let acdmTokenMock: FakeContract<Contract>;
     let uniswapRouterMock: FakeContract<Contract>;
 
-    async function weiPerDecimalInSaleRound() {
+    async function weiPerDecimalInSaleRound(): Promise<BigNumber> {
         const tokenPrice: BigNumber = await acdmPlatform.currentTokenPrice();
         const tokenDecimals: BigNumber = BigNumber.from(acdmTokenDecimals);
         return tokenPrice.div(BigNumber.from(10).pow(tokenDecimals));
@@ -116,7 +116,7 @@ describe.only("ACDMPlatform", function() {
 
         it("Should fail if a sender has not enough acdm tokens", async function() {
             const amount: number = 1;
-            const price: BigNumber = await weiPerDecimalInSaleRound();
+            const price: BigNumber = await acdmPlatform.currentTokenPrice();
             const aliceBalance: number = 0;
             const aliceAddress: string = await alice.getAddress();
             await acdmTokenMock.balanceOf.whenCalledWith(aliceAddress).returns(aliceBalance);
@@ -130,7 +130,7 @@ describe.only("ACDMPlatform", function() {
 
         it("Should fail if the platform is not allowed to transfer sufficient amount of acdm tokens", async function() {
             const amount: number = 1;
-            const price: BigNumber = await weiPerDecimalInSaleRound();
+            const price: BigNumber = await acdmPlatform.currentTokenPrice();
             const aliceBalance: number = 1;
             const aliceAddress: string = await alice.getAddress();
             const platformAddress: string = acdmPlatform.address;
@@ -146,7 +146,7 @@ describe.only("ACDMPlatform", function() {
 
         it("Should fail if the transfer of acdm tokens failed", async function() {
             const amount: number = 1;
-            const price: BigNumber = await weiPerDecimalInSaleRound();
+            const price: BigNumber = await acdmPlatform.currentTokenPrice();
             const aliceBalance: number = 1;
             const aliceAddress: string = await alice.getAddress();
             const platformAddress: string = acdmPlatform.address;
@@ -163,7 +163,7 @@ describe.only("ACDMPlatform", function() {
 
         it("Should emit the PutOrder event on success", async function() {
             const amount: number = 1;
-            const price: BigNumber = await weiPerDecimalInSaleRound();
+            const price: BigNumber = await acdmPlatform.currentTokenPrice();
             const aliceBalance: number = 1;
             const orderId: number = 0;
             const aliceAddress: string = await alice.getAddress();
@@ -202,7 +202,7 @@ describe.only("ACDMPlatform", function() {
         it("Should fail the sender is not the owner", async function() {
             const orderId: number = 0;
             const amount: number = 1;
-            const price: BigNumber = await weiPerDecimalInSaleRound();
+            const price: BigNumber = await acdmPlatform.currentTokenPrice();
 
             await network.provider.send("evm_increaseTime", [roundDuration]);
             await acdmPlatform.startTradeRound();
@@ -215,7 +215,7 @@ describe.only("ACDMPlatform", function() {
         it("Should fail if the transfer of acdm tokens failed", async function() {
             const orderId: number = 0;
             const amount: number = 1;
-            const price: BigNumber = await weiPerDecimalInSaleRound();
+            const price: BigNumber = await acdmPlatform.currentTokenPrice();
             const aliceAddress: string = await alice.getAddress();
             await acdmTokenMock.transfer.whenCalledWith(aliceAddress, amount).returns(false);
 
@@ -230,7 +230,7 @@ describe.only("ACDMPlatform", function() {
         it("Should emit the CancelOrder event on success", async function() {
             const orderId: number = 0;
             const amount: number = 1;
-            const price: BigNumber = await weiPerDecimalInSaleRound();
+            const price: BigNumber = await acdmPlatform.currentTokenPrice();
             const aliceAddress: string = await alice.getAddress();
             await acdmTokenMock.transfer.whenCalledWith(aliceAddress, amount).returns(true);
 
@@ -496,6 +496,111 @@ describe.only("ACDMPlatform", function() {
             expect(xxxTokenMock.burn).to.be.calledOnceWith(amounts[2]);
         });
    });
+
+    describe("startTradeRound", async function() {
+        it("Should fail if current round is TRADE", async function() {
+            await network.provider.send("evm_increaseTime", [roundDuration]);
+            await acdmPlatform.startTradeRound();
+            const startTradeRoundTxPromise: Promise<any> = acdmPlatform.startTradeRound();
+
+            await expect(startTradeRoundTxPromise).to.be.revertedWith("Current round is TRADE");
+        });
+
+        it("Should fail if deadline is not met", async function() {
+            const startTradeRoundTxPromise: Promise<any> = acdmPlatform.startTradeRound();
+
+            await expect(startTradeRoundTxPromise).to.be.revertedWith("Not ready yet");
+        });
+
+        it("Should burn excessive amount of acdmTokens", async function() {
+            const tokensIssuedDecimals: BigNumber =
+                BigNumber.from(tokensIssued).mul(BigNumber.from(10).pow(await acdmTokenMock.decimals()));
+
+            await network.provider.send("evm_increaseTime", [roundDuration]);
+            await acdmPlatform.startTradeRound();
+
+            expect(acdmTokenMock.burn).to.be.calledOnceWith(tokensIssuedDecimals);
+        });
+
+        it("Should proceed if all tokens were sold during the SALE round", async function() {
+            const tokensIssuedDecimals: BigNumber = await acdmPlatform.tokensIssued();
+            const weiPerDecimal: BigNumber = await weiPerDecimalInSaleRound();
+            const value: BigNumber = tokensIssuedDecimals.mul(tokensIssuedDecimals);
+            const aliceAddress: string = await alice.getAddress();
+            network.config.gasPrice = 0;
+            await acdmTokenMock.transfer.whenCalledWith(aliceAddress, tokensIssuedDecimals).returns(true);
+
+            await acdmPlatform.buy({value: value});
+            await acdmPlatform.startTradeRound();
+         });
+
+        it("Should emit RoundSwitch event", async function() {
+            await network.provider.send("evm_increaseTime", [roundDuration]);
+            const startTradeRoundTxPromise: Promise<any> = acdmPlatform.startTradeRound();
+
+            await expect(startTradeRoundTxPromise).to.emit(acdmPlatform, "RoundSwitch").withArgs(0);
+        });
+    });
+
+    describe("startSaleRound", async function() {
+
+         it("Should fail if current round is SALE", async function() {
+            const startSaleRoundTxPromise: Promise<any> = acdmPlatform.startSaleRound();
+
+            await expect(startSaleRoundTxPromise).to.be.revertedWith("Current round is SALE");
+         });
+
+         it("Should fail if deadline is not met", async function() {
+            await network.provider.send("evm_increaseTime", [roundDuration]);
+            await acdmPlatform.startTradeRound();
+            const startSaleRoundTxPromise: Promise<any> = acdmPlatform.startSaleRound();
+
+            await expect(startSaleRoundTxPromise).to.be.revertedWith("Round deadline is not met");
+         });
+
+         it("Should mint ACDM tokens if trade volumes was not zero", async function() {
+            const orderId: number = 0;
+            const amount: number = 10_000_000;
+            const tradePrice: number = (ethers.utils.parseEther("0.000001")).toNumber();
+            const decimals: BigNumber = BigNumber.from(10).pow(await acdmTokenMock.decimals());
+            const weiPerDecimal: number = BigNumber.from(tradePrice).div(decimals).toNumber();
+            const value: number = amount * weiPerDecimal;
+            const aliceAddress: string = await alice.getAddress();
+            const salePrice: BigNumber = await acdmPlatform.currentTokenPrice();
+            const expectedTokenIssuance: BigNumber = BigNumber.from(value).div(salePrice).mul(decimals);
+            await acdmTokenMock.transfer.whenCalledWith(aliceAddress, amount).returns(true);
+            await acdmTokenMock.mint.reset();
+
+            await network.provider.send("evm_increaseTime", [roundDuration]);
+            await acdmPlatform.startTradeRound();
+            await putOrder(amount, tradePrice, alice);
+            const redeemOrderTx: any = await acdmPlatform.redeemOrder(orderId, {value: value});
+            await network.provider.send("evm_increaseTime", [roundDuration]);
+            await acdmPlatform.startSaleRound();
+
+            expect(acdmTokenMock.mint).to.be.calledOnceWith(expectedTokenIssuance, acdmPlatform.address);
+         });
+
+         it("Should not mint ACDM tokens if trade volumes was zero", async function() {
+            await acdmTokenMock.mint.reset();
+
+            await network.provider.send("evm_increaseTime", [roundDuration]);
+            await acdmPlatform.startTradeRound();
+            await network.provider.send("evm_increaseTime", [roundDuration]);
+            const startSaleRoundTxPromise: Promise<any> = acdmPlatform.startSaleRound();
+
+            expect(acdmTokenMock.mint).to.have.callCount(0);
+         });
+
+         it("Should emit RoundSwitch event", async function() {
+            await network.provider.send("evm_increaseTime", [roundDuration]);
+            await acdmPlatform.startTradeRound();
+            await network.provider.send("evm_increaseTime", [roundDuration]);
+            const startSaleRoundTxPromise: Promise<any> = acdmPlatform.startSaleRound();
+
+            await expect(startSaleRoundTxPromise).to.emit(acdmPlatform, "RoundSwitch").withArgs(1);
+         });
+    });
 
    describe("setters", async function() {
         it("Should allow for the owner to change round duration", async function() {

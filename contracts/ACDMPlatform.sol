@@ -235,7 +235,7 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
 
         SafeERC20.safeTransfer(acdmToken, msg.sender, amount);
         order.amount -= amount;
-        tradeVolume += amount;
+        tradeVolume += msg.value - leftover;
         _payReferrals(amount, weiPerDecimal);
         uint256 referrersPayment = amount * weiPerDecimal * referrerTradeFee * 2 / 100;
         payable(order.owner).transfer(msg.value - leftover - referrersPayment);
@@ -294,7 +294,8 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
      * @notice Starts the `Trade` round
      */
     function startTradeRound() external onlyOwner {
-        require(currentRound == Round.SALE && block.timestamp >= roundDeadline, "Not ready yet");
+        require(currentRound == Round.SALE, "Current round is TRADE");
+        require(block.timestamp >= roundDeadline || tokensIssued == tokensSold, "Not ready yet"); //todo arefev: make a better message
 
         if (tokensIssued != tokensSold) {
             acdmToken.burn(tokensIssued - tokensSold);
@@ -311,19 +312,17 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
      * @notice Starts the `Sale` round
      */
     function startSaleRound() external onlyOwner {
-        require(currentRound == Round.TRADE && (block.timestamp >= roundDeadline || tokensIssued == tokensSold), "Not ready yet");
+        require(currentRound == Round.TRADE, "Current round is SALE");
+        require(block.timestamp >= roundDeadline, "Round deadline is not met");
 
         tokensSold = 0;
-        //0.000004 eth == 4_000_000_000_000 wei
-        currentTokenPrice = currentTokenPrice * 103 / 100 + 4_000_000_000_000;
+        tokensIssued = tokensIssued = tradeVolume / currentTokenPrice * 10 ** acdmToken.decimals();
 
-        if (tradeVolume != 0) {
-            tokensIssued = tradeVolume / currentTokenPrice;
+        if (tokensIssued != 0) {
             acdmToken.mint(tokensIssued, address(this));
-        } else {
-            tokensIssued = 0;
         }
 
+        currentTokenPrice = currentTokenPrice * 103 / 100 + 4_000_000_000_000; //0.000004 eth == 4_000_000_000_000 wei
         currentRound = Round.SALE;
         roundDeadline = block.timestamp + roundDuration;
 
