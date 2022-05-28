@@ -227,17 +227,17 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
             amount = order.amount;
         }
 
-        uint256 leftover = msg.value - (amount * weiPerDecimal);
-        if (leftover != 0) {
-            payable(msg.sender).transfer(leftover);
-        }
-
         SafeERC20.safeTransfer(acdmToken, msg.sender, amount);
         order.amount -= amount;
+        uint256 leftover = msg.value - (amount * weiPerDecimal);
         tradeVolume += msg.value - leftover;
         _payReferrals(amount, weiPerDecimal);
         uint256 referrersPayment = amount * weiPerDecimal * referrerTradeFee * 2 / 100;
         payable(order.owner).transfer(msg.value - leftover - referrersPayment);
+
+        if (leftover != 0) {
+            payable(msg.sender).transfer(leftover);
+        }
 
         if (order.amount == 0) {
             delete orders[orderId];
@@ -261,14 +261,14 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
             amount = remainingTokens;
         }
 
+        tokensSold += amount;
+        SafeERC20.safeTransfer(acdmToken, msg.sender, amount);
+        _payReferrals(amount, weiPerDecimal);
+
         uint256 leftover = msg.value - (amount * weiPerDecimal);
         if (leftover != 0) {
             payable(msg.sender).transfer(leftover);
         }
-
-        tokensSold += amount;
-        SafeERC20.safeTransfer(acdmToken, msg.sender, amount);
-        _payReferrals(amount, weiPerDecimal);
 
         emit SaleOrder(msg.sender, amount);
     }
@@ -321,7 +321,8 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
             acdmToken.mint(tokensIssued, address(this));
         }
 
-        currentTokenPrice = currentTokenPrice * 103 / 100 + 4_000_000_000_000; //0.000004 eth == 4_000_000_000_000 wei
+        //0.000004 eth == 4_000_000_000_000 wei
+        currentTokenPrice = currentTokenPrice * 103 / 100 + 4_000_000_000_000;
         currentRound = Round.SALE;
         roundDeadline = block.timestamp + roundDuration;
 
@@ -361,7 +362,7 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
         referrerTradeFee = _referrerTradeFee;
     }
 
-    function orderAmount(uint256 orderId) public view returns(uint256) {
+    function orderAmount(uint256 orderId) public view returns (uint256) {
         return orders[orderId].amount;
     }
 

@@ -10,10 +10,8 @@ import IUniswapV2Router02 from "../artifacts/@uniswap/v2-periphery/contracts/int
 
 use(smock.matchers);
 
-//todo arefev: remove 'only'
-//todo arefev: test referral payments
-//todo arefev: squash commits after all tests are ready
-describe.only("ACDMPlatform", function() {
+//todo arefev: refactoring
+describe("ACDMPlatform", function() {
 
     const roundDuration: number = 30;
     const referrerTradeFee: number = 5;
@@ -32,10 +30,16 @@ describe.only("ACDMPlatform", function() {
     let acdmTokenMock: FakeContract<Contract>;
     let uniswapRouterMock: FakeContract<Contract>;
 
+    async function withDecimals(tokens: BigNumber): Promise<BigNumber> {
+        return tokens.mul(BigNumber.from(10).pow(await acdmTokenMock.decimals()));
+    }
+
+    async function perDecimal(tokens: BigNumber): Promise<BigNumber> {
+        return tokens.div(await withDecimals(BigNumber.from(1)));
+    }
+
     async function weiPerDecimalInSaleRound(): Promise<BigNumber> {
-        const tokenPrice: BigNumber = await acdmPlatform.currentTokenPrice();
-        const tokenDecimals: BigNumber = BigNumber.from(acdmTokenDecimals);
-        return tokenPrice.div(BigNumber.from(10).pow(tokenDecimals));
+        return await perDecimal(await acdmPlatform.currentTokenPrice());
     }
 
     async function putOrder(amount: number | BigNumber, price: number | BigNumber, signer: Signer) {
@@ -330,10 +334,9 @@ describe.only("ACDMPlatform", function() {
             const aliceAddress: string = await alice.getAddress();
             const bobAddress: string = await bob.getAddress();
             const orderId: number = 0;
-            const tokenDecimals: BigNumber = await acdmTokenMock.decimals();
             const tokenPrice: BigNumber = BigNumber.from(ethers.utils.parseEther("0.0001"));
-            const putAmount: BigNumber = BigNumber.from(2).mul(BigNumber.from(10).pow(tokenDecimals)); //2 tokens
-            const weiPerDecimal: BigNumber = tokenPrice.div(BigNumber.from(10).pow(tokenDecimals));
+            const putAmount: BigNumber = await withDecimals(BigNumber.from(2)); //2 tokens
+            const weiPerDecimal: BigNumber = await perDecimal(tokenPrice);
             const expectedLeftover: BigNumber = weiPerDecimal;
             const value: BigNumber = putAmount.mul(weiPerDecimal).add(expectedLeftover);
             await acdmTokenMock.balanceOf.whenCalledWith(bobAddress).returns(putAmount);
@@ -427,8 +430,7 @@ describe.only("ACDMPlatform", function() {
         });
 
         it("Should emit the SaleOrder event", async function() {
-            const acdmTokenDecimals: BigNumber = await acdmTokenMock.decimals();
-            const amount: BigNumber = BigNumber.from(1).mul(BigNumber.from(10).pow(acdmTokenDecimals));
+            const amount: BigNumber = await withDecimals(BigNumber.from(1));
             const aliceAddress: string = await alice.getAddress();
             const value: BigNumber = await acdmPlatform.currentTokenPrice();
             await acdmTokenMock.transfer.whenCalledWith(aliceAddress, amount).returns(true);
@@ -439,8 +441,7 @@ describe.only("ACDMPlatform", function() {
         });
 
         it("Should fail if no more tokens available", async function() {
-            const acdmTokenDecimals: BigNumber = await acdmTokenMock.decimals();
-            const amount: BigNumber = BigNumber.from(tokensIssued).mul(BigNumber.from(10).pow(acdmTokenDecimals));
+            const amount: BigNumber = await withDecimals(BigNumber.from(tokensIssued));
             const aliceAddress: string = await alice.getAddress();
             const value: BigNumber = amount.mul(await acdmPlatform.currentTokenPrice());
             await acdmTokenMock.transfer.whenCalledWith(aliceAddress, amount).returns(true);
@@ -497,8 +498,7 @@ describe.only("ACDMPlatform", function() {
             const orderId: number = 0;
             const amount: number = 1;
             const price: number = (ethers.utils.parseEther("0.000001")).toNumber();
-            const weiPerDecimal: number =
-                BigNumber.from(price).div(BigNumber.from(10).pow(await acdmTokenMock.decimals())).toNumber();
+            const weiPerDecimal: number = (await perDecimal(BigNumber.from(price))).toNumber();
             const value: number = (ethers.utils.parseEther("0.000001")).toNumber();
             const aliceAddress: string = await alice.getAddress();
             const expectedFee: number = amount * weiPerDecimal * referrerTradeFee * 2 / 100;
@@ -533,7 +533,6 @@ describe.only("ACDMPlatform", function() {
             const path: string[] = [await uniswapRouterMock.WETH(), xxxTokenMock.address];
             const amounts: number[] = [0, 0, 20];
 
-            //todo arefev: refactoring
             await alice.sendTransaction({ to: daoMock.address, value: ethers.utils.parseEther("0.5") });
             await network.provider.send("evm_increaseTime", [roundDuration]);
             await acdmPlatform.startTradeRound();
@@ -567,8 +566,7 @@ describe.only("ACDMPlatform", function() {
         });
 
         it("Should burn excessive amount of acdmTokens", async function() {
-            const tokensIssuedDecimals: BigNumber =
-                BigNumber.from(tokensIssued).mul(BigNumber.from(10).pow(await acdmTokenMock.decimals()));
+            const tokensIssuedDecimals: BigNumber = await withDecimals(BigNumber.from(tokensIssued))
 
             await network.provider.send("evm_increaseTime", [roundDuration]);
             await acdmPlatform.startTradeRound();
@@ -614,12 +612,11 @@ describe.only("ACDMPlatform", function() {
             const orderId: number = 0;
             const amount: number = 10_000_000;
             const tradePrice: number = (ethers.utils.parseEther("0.000001")).toNumber();
-            const decimals: BigNumber = BigNumber.from(10).pow(await acdmTokenMock.decimals());
-            const weiPerDecimal: number = BigNumber.from(tradePrice).div(decimals).toNumber();
+            const weiPerDecimal: number = (await perDecimal(BigNumber.from(tradePrice))).toNumber();
             const value: number = amount * weiPerDecimal;
             const aliceAddress: string = await alice.getAddress();
             const salePrice: BigNumber = await acdmPlatform.currentTokenPrice();
-            const expectedTokenIssuance: BigNumber = BigNumber.from(value).div(salePrice).mul(decimals);
+            const expectedTokenIssuance: BigNumber = await withDecimals(BigNumber.from(value).div(salePrice));
             await acdmTokenMock.transfer.whenCalledWith(aliceAddress, amount).returns(true);
             await acdmTokenMock.mint.reset();
 
@@ -657,13 +654,11 @@ describe.only("ACDMPlatform", function() {
     describe("referral program", async function() {
         it("Should send referral fees in TRADE round", async function() {
             const orderId: number = 0;
-            const tokenDecimals: BigNumber = await acdmTokenMock.decimals();
-            const putAmount: number =
-                BigNumber.from(2).mul(BigNumber.from(10).pow(tokenDecimals)).toNumber(); //todo arefev: cre utility function
-            const buyAmount: number = BigNumber.from(10).pow(tokenDecimals).toNumber();
+            const putAmount: number = (await withDecimals(BigNumber.from(2))).toNumber();
+            const buyAmount: number = (await withDecimals(BigNumber.from(1))).toNumber();
             const price: number = (ethers.utils.parseEther("0.000001")).toNumber();
             const value: number = price;
-            const weiPerDecimal: number = BigNumber.from(price).div(BigNumber.from(10).pow(tokenDecimals)).toNumber();
+            const weiPerDecimal: number = (await perDecimal(BigNumber.from(price))).toNumber();
             const aliceAddress: string = await alice.getAddress();
             const bobAddress: string = await bob.getAddress();
             const maloryAddress: string = await malory.getAddress();
@@ -683,7 +678,7 @@ describe.only("ACDMPlatform", function() {
         });
 
         it("Should send referral fees in SALE round", async function() {
-            const amount: number = BigNumber.from(1).mul(BigNumber.from(10).pow(acdmTokenDecimals)).toNumber();
+            const amount: number = (await withDecimals(BigNumber.from(1))).toNumber();
             const weiPerDecimal: number = (await weiPerDecimalInSaleRound()).toNumber();
             const aliceAddress: string = await alice.getAddress();
             const bobAddress: string = await bob.getAddress();
