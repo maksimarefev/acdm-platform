@@ -65,4 +65,9 @@ interface IDAO {
      * @notice Staking contract
      */
     function staking() external view returns (IStaking);
+
+    /**
+     * @notice todo arefev: description
+     */
+    function isInitialized() external view returns(bool);
 }

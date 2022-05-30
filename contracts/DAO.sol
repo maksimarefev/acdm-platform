@@ -29,6 +29,8 @@ contract DAO is IDAO, Ownable {
 
     uint256 public override debatingPeriodDuration;
 
+    bool public override isInitialized;
+
     IStaking public override staking;
 
     /**
@@ -71,15 +73,25 @@ contract DAO is IDAO, Ownable {
         _;
     }
 
-    constructor(address _chairman, address _staking, uint256 _minimumQuorum, uint256 _debatingPeriodDuration) public {
+    modifier initialized() {
+        require(isInitialized, "Not initialized");
+        _;
+    }
+
+    constructor(address _chairman, uint256 _minimumQuorum, uint256 _debatingPeriodDuration) public {
         require(_minimumQuorum <= 100, "Minimum quorum can not be > 100");
-        staking = IStaking(_staking);
         chairman = _chairman;
         minimumQuorum = _minimumQuorum;
         debatingPeriodDuration = _debatingPeriodDuration;
     }
 
-    function addProposal(bytes memory data, address recipient, string memory _description) public override onlyChairman {
+    function init(address _staking) external onlyOwner {
+        require(!isInitialized, "Already initialized");
+        require(address(0) != _staking, "Address is zero");
+        staking = IStaking(_staking);
+    }
+
+    function addProposal(bytes memory data, address recipient, string memory _description) public override onlyChairman initialized {
         uint32 codeSize;
         assembly {
             codeSize := extcodesize(recipient)
@@ -100,7 +112,7 @@ contract DAO is IDAO, Ownable {
         emit ProposalCreated(nextProposalId);
     }
 
-    function vote(uint256 proposalId, bool votesFor) public override {
+    function vote(uint256 proposalId, bool votesFor) public override initialized {
         Proposal storage proposal = proposals[proposalId];
 
         require(proposal.deadline != 0, "Proposal not found");
@@ -121,7 +133,7 @@ contract DAO is IDAO, Ownable {
         }
     }
 
-    function finishProposal(uint256 proposalId) public override {
+    function finishProposal(uint256 proposalId) public override initialized {
         Proposal storage proposal = proposals[proposalId];
 
         require(proposal.deadline != 0, "Proposal not found");
@@ -152,26 +164,26 @@ contract DAO is IDAO, Ownable {
         delete proposals[proposalId];
     }
 
-    function changeChairman(address _chairman) public override onlyChairman {
+    function changeChairman(address _chairman) public override onlyChairman initialized {
         require(_chairman != address(0), "Should not be zero address");
         chairman = _chairman;
     }
 
-    function setMinimumQuorum(uint256 _minimumQuorum) public override onlyOwner {
+    function setMinimumQuorum(uint256 _minimumQuorum) public override onlyOwner initialized {
         require(_minimumQuorum <= 100, "Minimum quorum can not be > 100");
         minimumQuorum = _minimumQuorum;
     }
 
-    function setDebatingPeriodDuration(uint256 _debatingPeriodDuration) public override onlyOwner {
+    function setDebatingPeriodDuration(uint256 _debatingPeriodDuration) public override onlyOwner initialized {
         debatingPeriodDuration = _debatingPeriodDuration;
     }
 
-    function description(uint256 proposalId) public override view returns (string memory) {
+    function description(uint256 proposalId) public override view initialized returns (string memory) {
         require(proposals[proposalId].recipient != address(0), "Proposal not found");
         return proposals[proposalId].description;
     }
 
-    function isParticipant(address stakeholder) public override view returns (bool) {
+    function isParticipant(address stakeholder) public override view initialized returns (bool) {
         return proposalCounters[stakeholder] > 0;
     }
 }

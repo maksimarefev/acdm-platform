@@ -151,8 +151,8 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
         uint256 _firstReferrerSaleFee,
         uint256 _secondReferrerSaleFee,
         uint256 _referrerTradeFee,
-        uint256 _tokensIssued,
-        uint256 _currentTokenPrice
+        uint256 _tokensIssued, //todo arefev: rename that parameter
+        uint256 _currentTokenPrice //todo arefev: rename that parameter
     ) public Ownable() {
         dao = _dao;
         roundDuration = _roundDuration;
