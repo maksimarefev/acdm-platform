@@ -3,7 +3,7 @@ node_modules
 coverage
 coverage.json
 .idea
-*Flattened.sol
+flattened
 typechain-types
 
 #Hardhat files

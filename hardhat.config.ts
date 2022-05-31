@@ -31,7 +31,9 @@ const config: HardhatUserConfig = {
     },
     etherscan: {
         apiKey: {
-          rinkeby: ETHERSCAN_API_KEY
+          rinkeby: ETHERSCAN_API_KEY,
+          ropsten: ETHERSCAN_API_KEY,
+          goerli: ETHERSCAN_API_KEY
         }
     }
 };

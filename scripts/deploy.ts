@@ -108,7 +108,7 @@ async function main() {
     console.log("Staking contract had been deployed to:", staking.address);
 
     console.log("Initializing DAO");
-    executeTx(() => dao.init(staking.address));
+    await executeTx(() => dao.init(staking.address));
     console.log("DAO was initialized");
 
     const roundDuration: number = 3 * 60; // 3 min
@@ -117,7 +117,7 @@ async function main() {
     const referrerTradeFee: number = 2; // 2%
     console.log("Deploying ACDMPlatform contract");
     const adcmPlatformFactory: ACDMPlatform__factory =
-    (await ethers.getContractFactory("ACDMPlatform")) as ACDMPlatform__factory;
+        (await ethers.getContractFactory("ACDMPlatform")) as ACDMPlatform__factory;
     const acdmPlatform: ACDMPlatform = await adcmPlatformFactory.deploy(
         routerAddress, xxxToken.address, dao.address, roundDuration, firstReferrerSaleFee, secondReferrerSaleFee, referrerTradeFee
     );
@@ -133,7 +133,7 @@ async function main() {
     const initialTokensSupply: number = 100_000; // 100 000 ACDM
     const initialTokenPrice: BigNumber = BigNumber.from(10).pow(18); // 1 ETH
     console.log("Initializing ACDM platform");
-    executeTx(() => acdmPlatform.init(acdmPlatform.address, initialTokensSupply, initialTokenPrice));
+    await executeTx(() => acdmPlatform.init(acdmToken.address, initialTokensSupply, initialTokenPrice));
     console.log("ACDM platform was initialized");
 
     console.log("Verifying XXXToken contract");
