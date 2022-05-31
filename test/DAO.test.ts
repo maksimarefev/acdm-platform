@@ -342,7 +342,6 @@ describe("DAO", function() {
         });
 
         it("Should not allow to construct dao contract with invalid minimum quorum", async function() {
-            const stakingMock: FakeContract<Contract> = await smock.fake(Staking.abi);
             const minimumQuorum: number = 101;
             const DAOFactory: DAO__factory = (await ethers.getContractFactory("DAO")) as DAO__factory;
             const aliceAddress: string = await alice.getAddress();

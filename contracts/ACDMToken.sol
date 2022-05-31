@@ -3,23 +3,15 @@
 pragma solidity ^0.8.0;
 
 import "./interface/ERC20BurnableMintableOwnable.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
 
 contract ACDMToken is ERC20BurnableMintableOwnable {
 
-    bool public isInitialized;
-
-    modifier initialized() {
-        require(isInitialized, "Not initialized");
-        _;
+    constructor(address acdmPlatform) public ERC20("ACADEM Coin", "ACDM") {
+        minter = acdmPlatform;
     }
 
-    constructor() public ERC20("ACADEM Coin", "ACDM") {}
-
-    function init(address acdmPlatform) external onlyOwner {
-        require(!isInitialized, "Already initialized");
-        minter = acdmPlatform;
-        isInitialized = true;
+    function mint(uint256 amount, address receiver) public override onlyMinter {
+        super.mint(amount, receiver);
     }
 
     function decimals() public pure override returns (uint8) {

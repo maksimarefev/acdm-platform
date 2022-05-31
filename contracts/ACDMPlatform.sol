@@ -94,6 +94,8 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
      */
     ERC20Burnable public xxxToken;
 
+    bool public isInitialized;
+
     /**
      * @dev the percentage received by the buyer's referrer's referrer when making a sale
      */
@@ -142,34 +144,27 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
         _;
     }
 
+    modifier initialized() {
+        require(isInitialized, "Not initialized");
+        _;
+    }
+
     constructor(
-        address _acdmToken,
         address _uniswapRouter,
         address _xxxToken,
         address _dao,
         uint256 _roundDuration,
         uint256 _firstReferrerSaleFee,
         uint256 _secondReferrerSaleFee,
-        uint256 _referrerTradeFee,
-        uint256 _initialTokensSupply,
-        uint256 _initialTokenPrice
+        uint256 _referrerTradeFee
     ) public Ownable() {
         dao = _dao;
         roundDuration = _roundDuration;
         firstReferrerSaleFee = _firstReferrerSaleFee;
         secondReferrerSaleFee = _secondReferrerSaleFee;
         referrerTradeFee = _referrerTradeFee;
-        acdmToken = ERC20BurnableMintable(_acdmToken);
         uniswapRouter = IUniswapV2Router02(_uniswapRouter);
         xxxToken = ERC20Burnable(_xxxToken);
-
-        //`**` has priority over `*`
-        tokensIssued = _initialTokensSupply * 10 ** acdmToken.decimals();
-
-        currentTokenPrice = _initialTokenPrice;
-        acdmToken.mint(tokensIssued, address(this));
-        currentRound = Round.SALE;
-        roundDeadline = block.timestamp + roundDuration;
 
         //In Uniswap v2 there are no more direct ETH pairs, all ETH must be converted to WETH first.
         path = new address[](2);
@@ -182,12 +177,23 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
      */
     receive() external payable {}
 
+    function init(address _acdmToken,uint256 _initialTokensSupply, uint256 _initialTokenPrice) external onlyOwner {
+        require(!isInitialized, "Already initialized");
+        acdmToken = ERC20BurnableMintable(_acdmToken);
+        tokensIssued = _initialTokensSupply * 10 ** acdmToken.decimals();
+        currentTokenPrice = _initialTokenPrice;
+        acdmToken.mint(tokensIssued, address(this));
+        currentRound = Round.SALE;
+        roundDeadline = block.timestamp + roundDuration;
+        isInitialized = true;
+    }
+
     /**
      * @notice creates a new order for selling ACDM tokens
      * @param amount is the amount of tokens (as decimals)
      * @param price is the price in wei per ONE token
      */
-    function putOrder(uint256 amount, uint256 price) public onlyTradeRound checkDeadline {
+    function putOrder(uint256 amount, uint256 price) public initialized onlyTradeRound checkDeadline {
         require(amount > 0, "Amount can't be 0");
         require(price / (10 ** acdmToken.decimals()) > 0, "Price is too low");
         require(acdmToken.balanceOf(msg.sender) >= amount, "Not enough balance");
@@ -201,7 +207,7 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
         emit PutOrder(orderId, msg.sender, amount, price);
     }
 
-    function cancelOrder(uint256 orderId) public onlyTradeRound checkDeadline {
+    function cancelOrder(uint256 orderId) public initialized onlyTradeRound checkDeadline {
         require(orders[orderId].amount > 0, "Order does not exist");
         require(orders[orderId].owner == msg.sender, "Not the order owner");
 
@@ -215,7 +221,7 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
     /**
      * @notice Buy for the 'Trade' round
      */
-    function redeemOrder(uint256 orderId) public payable onlyTradeRound checkDeadline nonReentrant {
+    function redeemOrder(uint256 orderId) public payable initialized onlyTradeRound checkDeadline nonReentrant {
         Order storage order = orders[orderId];
         require(order.amount > 0, "Order does not exist");
 
@@ -249,7 +255,7 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
     /**
      * @notice Buy for the 'Sale' round
      */
-    function buy() public payable onlySaleRound checkDeadline nonReentrant {
+    function buy() public payable initialized onlySaleRound checkDeadline nonReentrant {
         require(tokensSold != tokensIssued, "No more tokens");
 
         uint256 weiPerDecimal = currentTokenPrice / (10 ** acdmToken.decimals());
@@ -277,7 +283,7 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
      * @notice registers a new user
      * @param referrer should be either already registerd user or the zero address
      */
-    function register(address referrer) public {
+    function register(address referrer) public initialized {
         require(!registeredUsers[msg.sender], "Already registered");
 
         if (referrer != address(0)) {
@@ -292,7 +298,7 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
     /**
      * @notice Starts the `Trade` round
      */
-    function startTradeRound() external onlyOwner {
+    function startTradeRound() external onlyOwner initialized {
         require(currentRound == Round.SALE, "Current round is TRADE");
         require(block.timestamp >= roundDeadline || tokensIssued == tokensSold, "Not ready yet"); //todo arefev: make a better message
 
@@ -310,7 +316,7 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
     /**
      * @notice Starts the `Sale` round
      */
-    function startSaleRound() external onlyOwner {
+    function startSaleRound() external onlyOwner initialized {
         require(currentRound == Round.TRADE, "Current round is SALE");
         require(block.timestamp >= roundDeadline, "Round deadline is not met");
 
@@ -332,7 +338,7 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
     /**
      * @param sendToOwner: if `true` then send accrued fees to the contract's owner; if `false` then buy XXXTokens and burn them
      */
-    function spendFees(bool sendToOwner) public onlyDAO nonReentrant {
+    function spendFees(bool sendToOwner) public onlyDAO initialized nonReentrant {
         uint256 value = address(this).balance;
 
         if (sendToOwner) {

@@ -2,20 +2,9 @@
 
 pragma solidity ^0.8.0;
 
-import "./Mintable.sol";
-import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
+import "./ERC20BurnableMintable.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
-abstract contract ERC20BurnableMintableOwnable is ERC20Burnable, Mintable, Ownable {
+abstract contract ERC20BurnableMintableOwnable is ERC20BurnableMintable, Ownable {
 
-    address public minter;
-
-    modifier onlyMinter() {
-        require(msg.sender == minter, "Not a minter");
-        _;
-    }
-
-    function mint(uint256 amount, address receiver) public override onlyMinter initialized {
-        require(receiver != address(0), "Address can't be 0");
-        _mint(receiver, amount);
-    }
 }

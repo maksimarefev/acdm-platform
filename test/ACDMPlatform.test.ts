@@ -68,23 +68,17 @@ describe("ACDMPlatform", function() {
          await acdmTokenMock.decimals.returns(acdmTokenDecimals);
          await uniswapRouterMock.WETH.returns(ethers.constants.AddressZero);
 
-         const daoAddress = daoMock.address;
-         const xxxTokenAddress = xxxTokenMock.address;
-         const acdmTokenAddress = acdmTokenMock.address;
-         const uniswapRouterAddress = uniswapRouterMock.address;
-
         acdmPlatform = await ACDMPlatformFactory.deploy(
-            acdmTokenAddress,
-            uniswapRouterAddress,
-            xxxTokenAddress,
-            daoAddress,
+            uniswapRouterMock.address,
+            xxxTokenMock.address,
+            daoMock.address,
             roundDuration,
             firstReferrerSaleFee,
             secondReferrerSaleFee,
-            referrerTradeFee,
-            tokensIssued,
-            currentTokenPrice
+            referrerTradeFee
         );
+
+        await acdmPlatform.init(acdmTokenMock.address, tokensIssued, currentTokenPrice);
    });
 
    describe("putOrder", async function() {
