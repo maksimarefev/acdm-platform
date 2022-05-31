@@ -89,6 +89,7 @@ contract DAO is IDAO, Ownable {
         require(!isInitialized, "Already initialized");
         require(address(0) != _staking, "Address is zero");
         staking = IStaking(_staking);
+        isInitialized = true;
     }
 
     function addProposal(bytes memory data, address recipient, string memory _description) public override onlyChairman initialized {

@@ -2,7 +2,7 @@
 
 pragma solidity ^0.8.0;
 
-import "./interface/ERC20BurnableMintable.sol";
+import "./interface/ERC20BurnableMintableOwnable.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
@@ -151,8 +151,8 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
         uint256 _firstReferrerSaleFee,
         uint256 _secondReferrerSaleFee,
         uint256 _referrerTradeFee,
-        uint256 _tokensIssued, //todo arefev: rename that parameter
-        uint256 _currentTokenPrice //todo arefev: rename that parameter
+        uint256 _initialTokensSupply,
+        uint256 _initialTokenPrice
     ) public Ownable() {
         dao = _dao;
         roundDuration = _roundDuration;
@@ -164,9 +164,9 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
         xxxToken = ERC20Burnable(_xxxToken);
 
         //`**` has priority over `*`
-        tokensIssued = _tokensIssued * 10 ** acdmToken.decimals();
+        tokensIssued = _initialTokensSupply * 10 ** acdmToken.decimals();
 
-        currentTokenPrice = _currentTokenPrice;
+        currentTokenPrice = _initialTokenPrice;
         acdmToken.mint(tokensIssued, address(this));
         currentRound = Round.SALE;
         roundDeadline = block.timestamp + roundDuration;

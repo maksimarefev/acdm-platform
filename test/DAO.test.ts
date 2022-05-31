@@ -24,7 +24,8 @@ describe("DAO", function() {
 
         const DAOFactory: DAO__factory = (await ethers.getContractFactory("DAO")) as DAO__factory;
 
-        dao = await DAOFactory.deploy(await alice.getAddress(), stakingMock.address, minimumQuorum, debatingPeriodDuration);
+        dao = await DAOFactory.deploy(await alice.getAddress(), minimumQuorum, debatingPeriodDuration);
+        await dao.init(stakingMock.address);
    });
 
    describe("vote", async function() {
@@ -344,10 +345,9 @@ describe("DAO", function() {
             const stakingMock: FakeContract<Contract> = await smock.fake(Staking.abi);
             const minimumQuorum: number = 101;
             const DAOFactory: DAO__factory = (await ethers.getContractFactory("DAO")) as DAO__factory;
+            const aliceAddress: string = await alice.getAddress();
 
-            const deployTxPromise: Promise<any> = DAOFactory.deploy(
-                await alice.getAddress(), stakingMock.address, minimumQuorum, debatingPeriodDuration
-            );
+            const deployTxPromise: Promise<any> = DAOFactory.deploy(aliceAddress, minimumQuorum, debatingPeriodDuration);
 
             await expect(deployTxPromise).to.be.revertedWith("Minimum quorum can not be > 100");
         });

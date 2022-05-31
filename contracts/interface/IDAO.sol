@@ -67,7 +67,7 @@ interface IDAO {
     function staking() external view returns (IStaking);
 
     /**
-     * @notice todo arefev: description
+     * @return true if DAO had been initialized
      */
     function isInitialized() external view returns(bool);
 }

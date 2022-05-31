@@ -13,9 +13,19 @@ const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY;
 const config: HardhatUserConfig = {
     solidity: "0.8.1",
     networks: {
+        ropsten: {
+          url: "https://eth-ropsten.alchemyapi.io/v2/" + ALCHEMY_API_KEY,
+          chainId: 3,
+          accounts: [`0x${PRIVATE_KEY}`]
+        },
         rinkeby: {
           url: "https://eth-rinkeby.alchemyapi.io/v2/" + ALCHEMY_API_KEY,
           chainId: 4,
+          accounts: [`0x${PRIVATE_KEY}`]
+        },
+        goerli: {
+          url: "https://eth-goerli.alchemyapi.io/v2/" + ALCHEMY_API_KEY,
+          chainId: 5,
           accounts: [`0x${PRIVATE_KEY}`]
         }
     },
