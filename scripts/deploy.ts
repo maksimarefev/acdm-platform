@@ -70,6 +70,9 @@ function verify(contractAddress: string, ...constructorParameters: any[]) {
 }
 
 async function main() {
+    const blockExplorerUrl: string = "https://" + network.name + ".etherscan.io/address/";
+    const contractAddresses: Object = {};
+
     const accounts: SignerWithAddress[] = await ethers.getSigners();
 
     if (accounts.length == 0) {
@@ -84,6 +87,7 @@ async function main() {
     const xxxTokenFactory: XXXToken__factory = (await ethers.getContractFactory("XXXToken")) as XXXToken__factory;
     const xxxToken: XXXToken = await xxxTokenFactory.deploy();
     await xxxToken.deployed();
+    contractAddresses["XXXToken"] = blockExplorerUrl + xxxToken.address;
     console.log("XXXToken contract had been deployed to:", xxxToken.address);
 
     const minimumQuorum: number = 30; //30%
@@ -92,10 +96,12 @@ async function main() {
     const DAO: DAO__factory = (await ethers.getContractFactory("DAO")) as DAO__factory;
     const dao: DAO = await DAO.deploy(signerAddress, minimumQuorum, debatingPeriodDuration);
     await dao.deployed();
+    contractAddresses["DAO"] = blockExplorerUrl + dao.address;
     console.log("DAO contract had been deployed to:", dao.address);
 
     const routerAddress: string = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D";
     const lpTokenAddress: string = await createLiquidityPool(signer, xxxToken, routerAddress);
+    contractAddresses["lpTokenAddress"] = blockExplorerUrl + lpTokenAddress;
     const rewardPercentage: number = 3; //3%
     const rewardPeriod: number = 3 * 60; //5 min
     const stakeWithdrawalTimeout: number = 3 * 60; //3 min;
@@ -105,13 +111,14 @@ async function main() {
         lpTokenAddress, xxxToken.address, rewardPercentage, rewardPeriod, stakeWithdrawalTimeout, dao.address
     );
     await staking.deployed();
+    contractAddresses["Staking"] = blockExplorerUrl + staking.address;
     console.log("Staking contract had been deployed to:", staking.address);
 
     console.log("Initializing DAO");
     await executeTx(() => dao.init(staking.address));
     console.log("DAO was initialized");
 
-    const roundDuration: number = 3 * 60; // 3 min
+    const roundDuration: number = 5 * 60; // 5 min
     const firstReferrerSaleFee: number = 5; // 5%
     const secondReferrerSaleFee: number = 3; // 3%
     const referrerTradeFee: number = 2; // 2%
@@ -122,16 +129,18 @@ async function main() {
         routerAddress, xxxToken.address, dao.address, roundDuration, firstReferrerSaleFee, secondReferrerSaleFee, referrerTradeFee
     );
     await acdmPlatform.deployed();
+    contractAddresses["ACDMPlatform"] = blockExplorerUrl + acdmPlatform.address;
     console.log("ACDMPlatform contract had been deployed to:", acdmPlatform.address);
 
     console.log("Deploying ACDMToken contract");
     const adcmTokenFactory: ACDMToken__factory = (await ethers.getContractFactory("ACDMToken")) as ACDMToken__factory;
     const acdmToken: ACDMToken = await adcmTokenFactory.deploy(acdmPlatform.address);
     await acdmToken.deployed();
+    contractAddresses["ACDMToken"] = blockExplorerUrl + acdmToken.address;
     console.log("ACDMToken contract had been deployed to:", acdmToken.address);
 
     const initialTokensSupply: number = 100_000; // 100 000 ACDM
-    const initialTokenPrice: BigNumber = BigNumber.from(10).pow(18); // 1 ETH
+    const initialTokenPrice: BigNumber = BigNumber.from(10).pow(13); //0.00001 ETH
     console.log("Initializing ACDM platform");
     await executeTx(() => acdmPlatform.init(acdmToken.address, initialTokensSupply, initialTokenPrice));
     console.log("ACDM platform was initialized");
@@ -166,6 +175,8 @@ async function main() {
     console.log("Verifying ACDMToken contract");
     verify(acdmToken.address, acdmPlatform.address);
     console.log("ACDMToken contract was verfied");
+
+    console.table(contractAddresses)
 }
 
 /**

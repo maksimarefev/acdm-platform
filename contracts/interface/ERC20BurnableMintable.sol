@@ -7,10 +7,10 @@ import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 
 abstract contract ERC20BurnableMintable is ERC20Burnable, Mintable {
 
-    address public minter;
+    mapping(address => bool) public minters;
 
     modifier onlyMinter() {
-        require(msg.sender == minter, "Not a minter");
+        require(minters[msg.sender], "Not a minter");
         _;
     }
 

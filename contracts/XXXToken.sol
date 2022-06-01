@@ -2,15 +2,11 @@
 
 pragma solidity ^0.8.0;
 
-import "./interface/ERC20BurnableMintableOwnable.sol";
+import "./interface/ERC20BurnableMintable.sol";
 
-contract XXXToken is ERC20BurnableMintableOwnable {
+contract XXXToken is ERC20BurnableMintable {
+
     constructor() public ERC20("XXX Coin", "XXX") {
-        minter = msg.sender;
-    }
-
-    function mint(uint256 amount, address receiver) public override onlyOwner {
-        require(receiver != address(0), "Address can't be 0");
-        _mint(receiver, amount);
+        minters[msg.sender] = true;
     }
 }

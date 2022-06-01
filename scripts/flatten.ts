@@ -6,34 +6,35 @@ function resolveAndNormalize(target: string): string {
     return path.resolve(path.normalize(target));
 }
 
+class ContractPath {
+    contractPath: string;
+    flattenedPath: string;
+
+    constructor(contractPath: string, flattenedPath: string) {
+        this.contractPath = contractPath;
+        this.flattenedPath = flattenedPath;
+    }
+}
+
 const flattenedDir = resolveAndNormalize('flattened');
 
-if (!fs.existsSync(flattenedDir)){
-    fs.mkdirSync(flattenedDir);
+if (fs.existsSync(flattenedDir)){
+    fs.rmSync(flattenedDir, { recursive: true });
 }
 
-type ContractPathToFlattenedPath = {
-    contractPath: string,
-    flattenedPath: string
-}
+fs.mkdirSync(flattenedDir);
 
 [
-    { contractPath: "contracts/DAO.sol", flattenedPath: "DAOFlattened.sol" },
-    { contractPath: "contracts/Staking.sol", flattenedPath: "StakingFlattened.sol" },
-    { contractPath: "contracts/XXXToken.sol", flattenedPath: "XXXTokenFlattened.sol" },
-    { contractPath: "contracts/ACDMToken.sol", flattenedPath: "ACDMTokenFlattened.sol" },
-    { contractPath: "contracts/ACDMPlatform.sol", flattenedPath: "ACDMPlatformFlattened.sol" }
-]
-.map(element => {
+    new ContractPath("contracts/DAO.sol", "DAOFlattened.sol"),
+    new ContractPath("contracts/Staking.sol", "StakingFlattened.sol"),
+    new ContractPath("contracts/XXXToken.sol", "XXXTokenFlattened.sol"),
+    new ContractPath("contracts/ACDMToken.sol", "ACDMTokenFlattened.sol"),
+    new ContractPath("contracts/ACDMPlatform.sol", "ACDMPlatformFlattened.sol")
+].map(element => {
     return {
         contractPath: resolveAndNormalize(element.contractPath),
         flattenedPath: path.join(flattenedDir, element.flattenedPath)
     };
-})
-.forEach(element => execSync("npx hardhat flatten " + element.contractPath + " > " + element.flattenedPath, { encoding: "utf-8" }))
-
-/* execSync("npx hardhat flatten contracts/DAO.sol > DAOFlattened.sol", { encoding: "utf-8" });
-execSync("npx hardhat flatten contracts/Staking.sol > StakingFlattened.sol", { encoding: "utf-8" });
-execSync("npx hardhat flatten contracts/XXXToken.sol > XXXTokenFlattened.sol", { encoding: "utf-8" });
-execSync("npx hardhat flatten contracts/ACDMToken.sol > ACDMTokenFlattened.sol", { encoding: "utf-8" });
-execSync("npx hardhat flatten contracts/ACDMPlatform.sol > ACDMPlatformFlattened.sol", { encoding: "utf-8" }); */
+}).forEach(element =>
+    execSync("npx hardhat flatten " + element.contractPath + " > " + element.flattenedPath, { encoding: "utf-8" })
+)

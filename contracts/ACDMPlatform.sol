@@ -2,7 +2,7 @@
 
 pragma solidity ^0.8.0;
 
-import "./interface/ERC20BurnableMintableOwnable.sol";
+import "./interface/ERC20BurnableMintable.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
@@ -39,7 +39,7 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
     /**
      * @dev current round
      */
-    Round public currentRound;
+    Round public currentRound; //todo arefev: redefine view method
 
     /*=========for the 'Trade' round=========*/
     /**
@@ -112,7 +112,8 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
 
     address[] private path;
 
-    event RoundSwitch(Round round);
+    //todo: add descriptions for events
+    event RoundSwitch(string round, uint256 roundNumber);
 
     event PutOrder(uint256 indexed orderId, address indexed owner, uint256 amount, uint256 price);
 
@@ -185,6 +186,7 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
         acdmToken.mint(tokensIssued, address(this));
         currentRound = Round.SALE;
         roundDeadline = block.timestamp + roundDuration;
+        currentRoundNumber = 1;
         isInitialized = true;
     }
 
@@ -215,7 +217,7 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
         delete orders[orderId];
         SafeERC20.safeTransfer(acdmToken, msg.sender, amount);
 
-        emit CancelOrder(orderId);
+        emit CancelOrder(orderId); //todo: rename to OrderCancelled
     }
 
     /**
@@ -224,6 +226,7 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
     function redeemOrder(uint256 orderId) public payable initialized onlyTradeRound checkDeadline nonReentrant {
         Order storage order = orders[orderId];
         require(order.amount > 0, "Order does not exist");
+        require(msg.sender != order.owner, "Sender is owner");
 
         uint256 weiPerDecimal = order.price / (10 ** acdmToken.decimals());
         require(msg.value >= weiPerDecimal, "Too low msg.value");
@@ -300,7 +303,7 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
      */
     function startTradeRound() external onlyOwner initialized {
         require(currentRound == Round.SALE, "Current round is TRADE");
-        require(block.timestamp >= roundDeadline || tokensIssued == tokensSold, "Not ready yet"); //todo arefev: make a better message
+        require(block.timestamp >= roundDeadline || tokensIssued == tokensSold, "Not ready yet"); //todo: make a better message
 
         if (tokensIssued != tokensSold) {
             acdmToken.burn(tokensIssued - tokensSold);
@@ -309,8 +312,9 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
         tradeVolume = 0;
         currentRound = Round.TRADE;
         roundDeadline = block.timestamp + roundDuration;
+        ++currentRoundNumber;
 
-        emit RoundSwitch(currentRound);
+        emit RoundSwitch("TRADE", currentRoundNumber);
     }
 
     /**
@@ -321,7 +325,7 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
         require(block.timestamp >= roundDeadline, "Round deadline is not met");
 
         tokensSold = 0;
-        tokensIssued = tokensIssued = tradeVolume / currentTokenPrice * 10 ** acdmToken.decimals();
+        tokensIssued = tradeVolume * 10 ** acdmToken.decimals() / currentTokenPrice;
 
         if (tokensIssued != 0) {
             acdmToken.mint(tokensIssued, address(this));
@@ -331,8 +335,9 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
         currentTokenPrice = currentTokenPrice * 103 / 100 + 4_000_000_000_000;
         currentRound = Round.SALE;
         roundDeadline = block.timestamp + roundDuration;
+        ++currentRoundNumber;
 
-        emit RoundSwitch(currentRound);
+        emit RoundSwitch("SALE", currentRoundNumber);
     }
 
     /**
@@ -345,7 +350,7 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
             payable(owner()).transfer(value);
         } else {
             uint256[] memory amounts = uniswapRouter.swapExactETHForTokens{value : value}(
-                0, path, address(this), block.timestamp + 15
+                0, path, address(this), block.timestamp
             );
             xxxToken.burn(amounts[2]);
         }
