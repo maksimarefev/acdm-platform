@@ -397,7 +397,7 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
         return orders[orderId].amount;
     }
 
-    function referrer(address user) public view returns (uint256) {
+    function referrer(address user) public view returns (address) {
         return referrers[user];
     }
 
