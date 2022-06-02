@@ -482,8 +482,9 @@ describe("ACDMPlatform", function() {
     describe("spendFees", async function() {
         it("Should fail if a caller is not the DAO", async function() {
             const sendToOwner: boolean = true;
+            const deadline: number = Math.floor(new Date().getTime() / 1000) + 100;
 
-            const spendFeesTxPromise: Promise<any> = acdmPlatform.spendFees(sendToOwner);
+            const spendFeesTxPromise: Promise<any> = acdmPlatform.spendFees(sendToOwner, deadline);
 
             await expect(spendFeesTxPromise).to.be.revertedWith("Caller is not the DAO");
         });
@@ -491,6 +492,7 @@ describe("ACDMPlatform", function() {
         it("Should transfer fees to owner", async function() {
             const orderId: number = 0;
             const amount: number = 1;
+            const deadline: number = Math.floor(new Date().getTime() / 1000) + 1000;
             const price: number = (ethers.utils.parseEther("0.000001")).toNumber();
             const weiPerDecimal: number = (await perDecimal(BigNumber.from(price))).toNumber();
             const value: number = (ethers.utils.parseEther("0.000001")).toNumber();
@@ -504,7 +506,7 @@ describe("ACDMPlatform", function() {
             await putOrder(amount, price, alice);
             await acdmPlatform.connect(bob).redeemOrder(orderId, {value: value});
             const ownerBalanceBefore: BigNumber = await alice.getBalance();
-            await acdmPlatform.connect(daoMock.wallet).spendFees(true);
+            await acdmPlatform.connect(daoMock.wallet).spendFees(true, deadline);
             const ownerBalanceAfter: BigNumber = await alice.getBalance();
 
             await expect(expectedFee).to.equal(ownerBalanceAfter.sub(ownerBalanceBefore).toNumber());
@@ -537,7 +539,7 @@ describe("ACDMPlatform", function() {
             await network.provider.send("evm_setNextBlockTimestamp", [nextBlockTimestamp])
             await uniswapRouterMock.swapExactETHForTokens
                 .whenCalledWith(amountOutMin, path, acdmPlatform.address, deadline).returns(amounts);
-            await acdmPlatform.connect(daoMock.wallet).spendFees(false);
+            await acdmPlatform.connect(daoMock.wallet).spendFees(false, deadline);
 
             expect(uniswapRouterMock.swapExactETHForTokens).to.be.calledOnceWith(amountOutMin, path, acdmPlatform.address, deadline);
             expect(xxxTokenMock.burn).to.be.calledOnceWith(amounts[2]);

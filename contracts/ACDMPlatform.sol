@@ -39,7 +39,7 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
     /**
      * @dev current round
      */
-    Round public currentRound; //todo arefev: redefine view method
+    Round public currentRound;
 
     /*=========for the 'Trade' round=========*/
     /**
@@ -112,17 +112,34 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
 
     address[] private path;
 
-    //todo: add descriptions for events
+    /**
+     * @dev Emitted when round is changed
+     */
     event RoundSwitch(string round, uint256 roundNumber);
 
+    /**
+     * @dev Emitted after performing putOrder operation
+     */
     event PutOrder(uint256 indexed orderId, address indexed owner, uint256 amount, uint256 price);
 
+    /**
+     * @dev Emitted after performing cancelOrder operation
+     */
     event CancelOrder(uint256 indexed orderId);
 
+    /**
+     * @dev Emitted after performing tradeOrder operation
+     */
     event TradeOrder(uint256 indexed orderId, address indexed buyer, uint256 amount);
 
+    /**
+     * @dev Emitted after performing buy operation
+     */
     event SaleOrder(address indexed buyer, uint256 amount);
 
+    /**
+     * @dev Emitted when referral payment occurs
+     */
     event ReferralPayment(address indexed referrer, uint256 amount);
 
     modifier onlyDAO() {
@@ -209,6 +226,9 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
         emit PutOrder(orderId, msg.sender, amount, price);
     }
 
+    /**
+     * @notice Cancels the order with id `orderId`
+     */
     function cancelOrder(uint256 orderId) public initialized onlyTradeRound checkDeadline {
         require(orders[orderId].amount > 0, "Order does not exist");
         require(orders[orderId].owner == msg.sender, "Not the order owner");
@@ -217,7 +237,7 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
         delete orders[orderId];
         SafeERC20.safeTransfer(acdmToken, msg.sender, amount);
 
-        emit CancelOrder(orderId); //todo: rename to OrderCancelled
+        emit CancelOrder(orderId);
     }
 
     /**
@@ -343,15 +363,15 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
     /**
      * @param sendToOwner: if `true` then send accrued fees to the contract's owner; if `false` then buy XXXTokens and burn them
      */
-    function spendFees(bool sendToOwner) public onlyDAO initialized nonReentrant {
+    function spendFees(bool sendToOwner, uint256 deadline) public onlyDAO initialized nonReentrant {
+        require(block.timestamp <= deadline, "Deadline is in the past");
+
         uint256 value = address(this).balance;
 
         if (sendToOwner) {
             payable(owner()).transfer(value);
         } else {
-            uint256[] memory amounts = uniswapRouter.swapExactETHForTokens{value : value}(
-                0, path, address(this), block.timestamp
-            );
+            uint256[] memory amounts = uniswapRouter.swapExactETHForTokens{value : value}(0, path, address(this), deadline);
             xxxToken.burn(amounts[2]);
         }
     }
@@ -375,6 +395,10 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
 
     function orderAmount(uint256 orderId) public view returns (uint256) {
         return orders[orderId].amount;
+    }
+
+    function referrer(address user) public view returns (uint256) {
+        return referrers[user];
     }
 
     /**

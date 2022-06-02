@@ -13,6 +13,7 @@ type TransactionReceipt = {
 }
 
 type Transaction = {
+    hash: string,
     wait(): Promise<TransactionReceipt>
 }
 
@@ -159,7 +160,7 @@ async function main() {
     );
     console.log("Staking contract was verfied");
 
-    console.log("Verifying ACDMPlatform contract");
+    console.log("Verifying ACDMPlatform contract"); //todo: why isn't it verified
     verify(
         acdmPlatform.address,
         routerAddress,
@@ -205,7 +206,7 @@ async function createLiquidityPool(signer: SignerWithAddress, xxxTokenContract: 
     const xxxTokensSupplyMin: BigNumber = priceFluctuationPercentage(xxxTokenInitialSupplyDecimals, 2);
     const etherSupplyMin: BigNumber = priceFluctuationPercentage(etherSupplyInWei, 2);
     const deadline: number = (await ethers.provider.getBlock("latest")).timestamp + 100;
-    const txOptions: TxOptions = { value:  etherSupplyInWei, gasLimit: BigNumber.from(3_000_000) };
+    const txOptions: TxOptions = { value: etherSupplyInWei, gasLimit: BigNumber.from(3_000_000) };
     const uniswapV2Router: Contract = getUniswapV2RouterContract(signer, routerAddress);
 
     console.log("Adding liquidity XXXToken/WETH");
@@ -229,16 +230,12 @@ async function createLiquidityPool(signer: SignerWithAddress, xxxTokenContract: 
     ));
 
     const pair: Pair = await Fetcher.fetchPairData(xxxToken, WETH[network.config.chainId]);
-    const liquidityToken: Token = pair.liquidityToken;
-
-    console.log("LP token address:", liquidityToken.address);
-
-    return liquidityToken.address;
+    return pair?.liquidityToken?.address;
 }
 
 main()
   .then(() => process.exit(0))
-  .catch((error) => {
+  .catch(error => {
     console.error(error);
     process.exit(1);
   });

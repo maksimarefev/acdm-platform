@@ -1,11 +1,18 @@
 import { ethers } from "ethers";
 
 const spendFeeAbi = [{
-    "inputs": [{
-        "internalType": "bool",
-        "name": "sendToOwner",
-        "type": "bool"
-    }],
+    "inputs": [
+     {
+       "internalType": "bool",
+       "name": "sendToOwner",
+       "type": "bool"
+     },
+     {
+       "internalType": "uint256",
+       "name": "deadline",
+       "type": "uint256"
+     }
+    ],
     "name": "spendFees",
     "outputs": [],
     "stateMutability": "nonpayable",
@@ -13,5 +20,6 @@ const spendFeeAbi = [{
 }];
 
 const iface = new ethers.utils.Interface(spendFeeAbi);
-const sendToOwner: boolean = true;
-console.log(iface.encodeFunctionData("spendFees", [sendToOwner]));
+const sendToOwner: boolean = false;
+const deadline: number = 1_654_177_510;
+console.log(iface.encodeFunctionData("spendFees", [sendToOwner, deadline]));
