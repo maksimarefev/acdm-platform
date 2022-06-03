@@ -5,7 +5,7 @@ pragma solidity ^0.8.0;
 interface IStaking {
 
     /**
-     * @notice Transfers the `amount` of tokens from `msg.sender` address to the StakingContract address
+     * @notice Transfers the `amount` of tokens from `msg.sender` address to the Staking contract address
      * @param amount the amount of tokens to stake
      */
     function stake(uint256 amount) external;
