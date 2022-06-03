@@ -110,8 +110,6 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
 
     Counters.Counter private orderIdGenerator;
 
-    address[] private path;
-
     /**
      * @dev Emitted when round is changed
      */
@@ -183,11 +181,6 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
         referrerTradeFee = _referrerTradeFee;
         uniswapRouter = IUniswapV2Router02(_uniswapRouter);
         xxxToken = ERC20Burnable(_xxxToken);
-
-        //In Uniswap v2 there are no more direct ETH pairs, all ETH must be converted to WETH first.
-        path = new address[](2);
-        path[0] = uniswapRouter.WETH();
-        path[1] = _xxxToken;
     }
 
     /**
@@ -371,6 +364,11 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
         if (sendToOwner) {
             payable(owner()).transfer(value);
         } else {
+            //In Uniswap v2 there are no more direct ETH pairs, all ETH must be converted to WETH first.
+            address[] memory path = new address[](2);
+            path[0] = uniswapRouter.WETH();
+            path[1] = address(xxxToken);
+
             uint256[] memory amounts = uniswapRouter.swapExactETHForTokens{value : value}(0, path, address(this), deadline);
             xxxToken.burn(amounts[2]);
         }
