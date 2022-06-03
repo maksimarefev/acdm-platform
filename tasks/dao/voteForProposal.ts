@@ -3,7 +3,7 @@ import "@nomiclabs/hardhat-ethers";
 import { task } from 'hardhat/config';
 import { Contract, ContractFactory } from "ethers";
 
-task("vote", "Registers `msg.sender` vote")
+task("voteForProposal", "Registers `msg.sender` vote")
     .addParam("contractAddress", "The address of the dao contract")
     .addParam("proposalId", "Proposal id")
     .addParam("votesFor", "Flag which specifies whether a sender votes `for` or `against`")

@@ -72,7 +72,7 @@ function verify(contractAddress: string, ...constructorParameters: any[]) {
 
 async function main() {
     const blockExplorerUrl: string = "https://" + network.name + ".etherscan.io/address/";
-    const contractAddresses: Object = {};
+    const contractAddresses: Record<string, string> = {};
 
     const accounts: SignerWithAddress[] = await ethers.getSigners();
 

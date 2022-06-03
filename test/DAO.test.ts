@@ -350,6 +350,30 @@ describe("DAO", function() {
 
             await expect(deployTxPromise).to.be.revertedWith("Minimum quorum can not be > 100");
         });
+
+        it("Should not allow to interact with the uninitialized contract", async function() {
+            const DAOFactory: DAO__factory = (await ethers.getContractFactory("DAO")) as DAO__factory;
+            const dao: DAO = await DAOFactory.deploy(await alice.getAddress(), minimumQuorum, debatingPeriodDuration);
+
+            const txPromise: Promise<any> = dao.setDebatingPeriodDuration(debatingPeriodDuration);
+
+            await expect(txPromise).to.be.revertedWith("Not initialized");
+        });
+
+        it("Should not allow to initialize twice", async function() {
+            const initTxPromise: Promise<any> = dao.init(stakingMock.address);
+
+            await expect(initTxPromise).to.be.revertedWith("Already initialized");
+        });
+
+        it("Should not allow to initialize with zero staking address", async function() {
+            const DAOFactory: DAO__factory = (await ethers.getContractFactory("DAO")) as DAO__factory;
+            const dao: DAO = await DAOFactory.deploy(await alice.getAddress(), minimumQuorum, debatingPeriodDuration);
+
+            const initTxPromise: Promise<any> = dao.init(ethers.constants.AddressZero);
+
+            await expect(initTxPromise).to.be.revertedWith("Address is zero");
+        });
    });
 
    describe("isParticipant", async function() {

@@ -21,5 +21,5 @@ const spendFeeAbi = [{
 
 const iface = new ethers.utils.Interface(spendFeeAbi);
 const sendToOwner: boolean = false;
-const deadline: number = 1_654_177_510;
+const deadline: number = 1_654_200_002;
 console.log(iface.encodeFunctionData("spendFees", [sendToOwner, deadline]));

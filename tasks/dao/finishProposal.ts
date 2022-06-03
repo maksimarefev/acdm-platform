@@ -3,7 +3,7 @@ import "@nomiclabs/hardhat-ethers";
 import { task } from 'hardhat/config';
 import { Contract, ContractFactory, Event } from "ethers";
 
-task("finish", "Finishes the proposal with id `proposalId`")
+task("finishProposal", "Finishes the proposal with id `proposalId`")
     .addParam("contractAddress", "The address of the dao contract")
     .addParam("proposalId", "Proposal id")
     .setAction(async function (taskArgs, hre) {

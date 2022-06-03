@@ -15,8 +15,8 @@ import "./tasks/acdmplatform/startSaleRound.ts";
 import "./tasks/acdmplatform/startTradeRound.ts";
 
 import "./tasks/dao/addProposal.ts";
-import "./tasks/dao/finish.ts";
-import "./tasks/dao/vote.ts";
+import "./tasks/dao/finishProposal.ts";
+import "./tasks/dao/voteForProposal.ts";
 
 import "./tasks/staking/claim.ts";
 import "./tasks/staking/stake.ts";
@@ -33,23 +33,11 @@ const config: HardhatUserConfig = {
           url: "https://eth-ropsten.alchemyapi.io/v2/" + ALCHEMY_API_KEY,
           chainId: 3,
           accounts: [`0x${PRIVATE_KEY}`]
-        },
-        rinkeby: {
-          url: "https://eth-rinkeby.alchemyapi.io/v2/" + ALCHEMY_API_KEY,
-          chainId: 4,
-          accounts: [`0x${PRIVATE_KEY}`]
-        },
-        goerli: {
-          url: "https://eth-goerli.alchemyapi.io/v2/" + ALCHEMY_API_KEY,
-          chainId: 5,
-          accounts: [`0x${PRIVATE_KEY}`]
         }
     },
     etherscan: {
         apiKey: {
-          rinkeby: ETHERSCAN_API_KEY,
-          ropsten: ETHERSCAN_API_KEY,
-          goerli: ETHERSCAN_API_KEY
+          ropsten: ETHERSCAN_API_KEY
         }
     }
 };

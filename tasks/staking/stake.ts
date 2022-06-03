@@ -1,7 +1,7 @@
 import "@nomiclabs/hardhat-web3";
 import "@nomiclabs/hardhat-ethers";
 import { task } from 'hardhat/config';
-import { Contract, ContractFactory, Event } from "ethers";
+import { Contract, ContractFactory } from "ethers";
 
 task("stake", "Transfers the `amount` of tokens from `msg.sender` address to the StakingContract address")
     .addParam("contractAddress", "An address of a contract")

@@ -1,7 +1,7 @@
 import "@nomiclabs/hardhat-web3";
 import "@nomiclabs/hardhat-ethers";
 import { task } from 'hardhat/config';
-import { Contract, ContractFactory, Event } from "ethers";
+import { Contract, ContractFactory } from "ethers";
 
 task("unstake", "Transfers staked tokens if any to the `msg.sender` address")
     .addParam("contractAddress", "An address of a contract")

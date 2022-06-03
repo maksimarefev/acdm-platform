@@ -1,4 +1,10 @@
-/*todo: DOES NOT WORK*/
 module.exports = {
-  skipFiles: ["ERC20BurnableMintable.sol", "IDAO.sol", "IStaking.sol", "Mintable.sol", "XXXToken.sol", "ACDMToken.sol"]
+  skipFiles: [
+    "interface/ERC20BurnableMintable.sol",
+    "interface/IDAO.sol",
+    "interface/IStaking.sol",
+    "interface/Mintable.sol",
+    "XXXToken.sol",
+    "ACDMToken.sol"
+  ]
 };

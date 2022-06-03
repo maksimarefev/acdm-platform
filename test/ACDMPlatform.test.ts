@@ -210,7 +210,7 @@ describe("ACDMPlatform", function() {
             await expect(cancelOrderTxPromise).to.be.revertedWith("Order does not exist");
         });
 
-        it("Should fail if order does not exists", async function() {
+        it("Should fail if round is over", async function() {
             const orderId: number = 0;
 
             await network.provider.send("evm_increaseTime", [roundDuration]);
@@ -284,7 +284,7 @@ describe("ACDMPlatform", function() {
             await expect(redeemOrderTxPromise).to.be.revertedWith("Order does not exist");
         });
 
-        it("Should fail if order doesn't exists", async function() {
+        it("Should fail if round is over", async function() {
             const orderId: number = 0;
 
             await network.provider.send("evm_increaseTime", [roundDuration]);
@@ -306,6 +306,19 @@ describe("ACDMPlatform", function() {
             const redeemOrderTxPromise: Promise<any> = acdmPlatform.connect(bob).redeemOrder(orderId);
 
             await expect(redeemOrderTxPromise).to.be.revertedWith("Too low msg.value");
+        });
+
+        it("Should fail if sender is the owner", async function() {
+            const orderId: number = 0;
+            const amount: number = 1;
+            const price: number = (ethers.utils.parseEther("0.001")).toNumber();
+
+            await network.provider.send("evm_increaseTime", [roundDuration]);
+            await acdmPlatform.startTradeRound();
+            await putOrder(amount, price, alice);
+            const redeemOrderTxPromise: Promise<any> = acdmPlatform.redeemOrder(orderId);
+
+            await expect(redeemOrderTxPromise).to.be.revertedWith("Sender is owner");
         });
 
         it("Should fail if transfer of acmd tokens failed", async function() {
@@ -385,7 +398,7 @@ describe("ACDMPlatform", function() {
             await expect(buyTxPromise).to.be.revertedWith("Too low msg.value");
         });
 
-        it("Should fail if not enough value given", async function() {
+        it("Should fail if round is over", async function() {
             const value: number = 0;
 
             await network.provider.send("evm_increaseTime", [roundDuration]);
@@ -429,6 +442,7 @@ describe("ACDMPlatform", function() {
             const value: BigNumber = await acdmPlatform.currentTokenPrice();
             await acdmTokenMock.transfer.whenCalledWith(aliceAddress, amount).returns(true);
 
+            await acdmPlatform.register(ethers.constants.AddressZero);
             const buyTxPromise: Promise<any> = acdmPlatform.buy({value: value});
 
             await expect(buyTxPromise).to.emit(acdmPlatform, "SaleOrder").withArgs(aliceAddress, amount);
@@ -487,6 +501,16 @@ describe("ACDMPlatform", function() {
             const spendFeesTxPromise: Promise<any> = acdmPlatform.spendFees(sendToOwner, deadline);
 
             await expect(spendFeesTxPromise).to.be.revertedWith("Caller is not the DAO");
+        });
+
+        it("Should fail if deadline is in the past", async function() {
+            const sendToOwner: boolean = true;
+            const deadline: number = Math.floor(new Date().getTime() / 1000) - 100;
+
+            await alice.sendTransaction({ to: daoMock.address, value: ethers.utils.parseEther("0.5") });
+            const spendFeesTxPromise: Promise<any> = acdmPlatform.connect(daoMock.wallet).spendFees(sendToOwner, deadline);
+
+            await expect(spendFeesTxPromise).to.be.revertedWith("Deadline is in the past");
         });
 
         it("Should transfer fees to owner", async function() {
@@ -811,6 +835,41 @@ describe("ACDMPlatform", function() {
             const actualOrderAmount: number = (await acdmPlatform.orderAmount(orderId)).toNumber();
 
             await expect(amount).to.equal(actualOrderAmount);
+        });
+
+        it("Should not allow to interact with the uninitialized contract", async function() {
+            const ACDMPlatformFactory: ACDMPlatform__factory =
+                (await ethers.getContractFactory("ACDMPlatform")) as ACDMPlatform__factory;
+            acdmPlatform = await ACDMPlatformFactory.deploy(
+                uniswapRouterMock.address,
+                xxxTokenMock.address,
+                daoMock.address,
+                roundDuration,
+                firstReferrerSaleFee,
+                secondReferrerSaleFee,
+                referrerTradeFee
+            );
+
+            const registerTxPromise: Promise<any> = acdmPlatform.register(ethers.constants.AddressZero);
+
+            await expect(registerTxPromise).to.be.revertedWith("Not initialized");
+        });
+
+        it("Should not allow to initialize twice", async function() {
+            const initTxPromise: Promise<any> = acdmPlatform.init(acdmTokenMock.address, tokensIssued, currentTokenPrice);
+
+            await expect(initTxPromise).to.be.revertedWith("Already initialized");
+        });
+
+        it("Should return valid referrer", async function() {
+            const aliceAddress: string = await alice.getAddress();
+            const bobAddress: string = await bob.getAddress();
+
+            await acdmPlatform.connect(bob).register(ethers.constants.AddressZero);
+            await acdmPlatform.register(bobAddress);
+            const actualReferrer: string = await acdmPlatform.referrer(aliceAddress);
+
+            await expect(bobAddress).to.equal(actualReferrer);
         });
    });
 });
