@@ -27,273 +27,286 @@ describe("Staking", function () {
         rewardTokenMock = await smock.fake(ERC20BurnableMintable.abi);
         stakingTokenMock = await smock.fake(ERC20BurnableMintable.abi);
 
-        const daoAddress: string = daoMock.address;
-        const rewardTokenAddress: string = rewardTokenMock.address;
-        const stakingTokenAddress: string = stakingTokenMock.address;
-
         const StakingFactory: Staking__factory = (await ethers.getContractFactory("Staking")) as Staking__factory;
         staking = await StakingFactory.deploy(
-             stakingTokenAddress, rewardTokenAddress, rewardPercentage, rewardingPeriod, stakeWithdrawalTimeout, daoAddress
+             stakingTokenMock.address,
+             rewardTokenMock.address,
+             rewardPercentage,
+             rewardingPeriod,
+             stakeWithdrawalTimeout,
+             daoMock.address
          );
     })
 
-    it("Should change total stake after staking", async () => {
-        const tokensToStake: number = 100;
-        const totalStakeBefore: BigNumber = await staking.totalStake();
-        const aliceAddress: string = await alice.getAddress();
-        const stakingAddress = staking.address;
-        await stakingTokenMock.transferFrom.whenCalledWith(aliceAddress, stakingAddress, tokensToStake).returns(true);
-
-        await staking.stake(tokensToStake);
-
-        const totalStakeAfter: BigNumber = await staking.totalStake();
-        expect(tokensToStake).to.equal(totalStakeAfter.toNumber() - totalStakeBefore.toNumber());
-    })
-
-    it("Should not allow to stake is a transfer of staking tokens failed", async () => {
-        const tokensToStake: number = 100;
-        const aliceAddress: string = await alice.getAddress();
-        const stakingAddress = staking.address;
-        await stakingTokenMock.transferFrom.whenCalledWith(aliceAddress, stakingAddress, tokensToStake).returns(false);
-
-        const stakeTxPromise: Promise<any> = staking.stake(tokensToStake);
+    describe("stake", async function () {
+        it("Should change total stake after staking", async () => {
+            const tokensToStake: number = 100;
+            const totalStakeBefore: BigNumber = await staking.totalStake();
+            const aliceAddress: string = await alice.getAddress();
+            const stakingAddress = staking.address;
+            await stakingTokenMock.transferFrom.whenCalledWith(aliceAddress, stakingAddress, tokensToStake).returns(true);
+
+            await staking.stake(tokensToStake);
+
+            const totalStakeAfter: BigNumber = await staking.totalStake();
+            expect(tokensToStake).to.equal(totalStakeAfter.toNumber() - totalStakeBefore.toNumber());
+        })
+
+        it("Should not allow to stake is a transfer of staking tokens failed", async () => {
+            const tokensToStake: number = 100;
+            const aliceAddress: string = await alice.getAddress();
+            const stakingAddress = staking.address;
+            await stakingTokenMock.transferFrom.whenCalledWith(aliceAddress, stakingAddress, tokensToStake).returns(false);
+
+            const stakeTxPromise: Promise<any> = staking.stake(tokensToStake);
+
+            await expect(stakeTxPromise).to.be.revertedWith("Staking token transfer failed");
+        })
+    });
+
+    describe("unstake", async function() {
+        it("Should not allow to unstake before the timeout has expired", async () => {
+            const tokensToStake: number = 100;
+            const stakingAddress = staking.address;
+            const aliceAddress: string = await alice.getAddress();
+            await stakingTokenMock.transferFrom.whenCalledWith(aliceAddress, stakingAddress, tokensToStake).returns(true);
+
+            await staking.stake(tokensToStake);
+            const unstakeTxPromise: Promise<any> = staking.unstake();
+
+            await expect(unstakeTxPromise)
+              .to.be.revertedWith("VM Exception while processing transaction: reverted with reason string 'Timeout is not met'");
+        })
+
+        it("Should allow to unstake after the timeout has expired", async () => {
+            const tokensToStake: number = 100;
+            const aliceAddress: string = await alice.getAddress();
+            const stakingAddress = staking.address;
+            await stakingTokenMock.transfer.whenCalledWith(aliceAddress, tokensToStake).returns(true);
+            await stakingTokenMock.transferFrom.whenCalledWith(aliceAddress, stakingAddress, tokensToStake).returns(true);
+            await daoMock.isParticipant.whenCalledWith(aliceAddress).returns(false);
+
+            await staking.stake(tokensToStake);
+            await network.provider.send("evm_increaseTime", [stakeWithdrawalTimeout])
+
+            const aliceStakeBeforeUnstake: BigNumber = await staking.getStake(aliceAddress);
+            await staking.unstake();
+            const aliceStakeAfterUnstake: BigNumber = await staking.getStake(aliceAddress);
+
+            expect(tokensToStake).to.equal(aliceStakeBeforeUnstake.toNumber() - aliceStakeAfterUnstake.toNumber());
+        })
+
+        it("Should not allow to unstake if stakeholder is participating in voting", async () => {
+            const tokensToStake: number = 100;
+            const aliceAddress: string = await alice.getAddress();
+            const stakingAddress = staking.address;
+            await stakingTokenMock.transferFrom.whenCalledWith(aliceAddress, stakingAddress, tokensToStake).returns(true);
+            await daoMock.isParticipant.whenCalledWith(aliceAddress).returns(true);
+
+            await staking.stake(tokensToStake);
+            await network.provider.send("evm_increaseTime", [stakeWithdrawalTimeout])
+            const unstakeTxPromise: Promise<any> = staking.unstake();
+
+            await expect(unstakeTxPromise).to.be.revertedWith("A proposal participant");
+        })
+
+        it("Should not allow to unstake if a transfer of staking tokens failed", async () => {
+            const tokensToStake: number = 100;
+            const aliceAddress: string = await alice.getAddress();
+            const stakingAddress = staking.address;
+            await stakingTokenMock.transfer.whenCalledWith(aliceAddress, tokensToStake).returns(false);
+            await stakingTokenMock.transferFrom.whenCalledWith(aliceAddress, stakingAddress, tokensToStake).returns(true);
+            await daoMock.isParticipant.whenCalledWith(aliceAddress).returns(false);
+
+            await staking.stake(tokensToStake);
+            await network.provider.send("evm_increaseTime", [stakeWithdrawalTimeout])
+            const unstakeTxPromise: Promise<any> = staking.unstake();
+
+            await expect(unstakeTxPromise).to.be.revertedWith("Staking token transfer failed");
+        })
+
+        it("Should not allow to unstake if nothing at stake", async () => {
+            const unstakeTxPromise: Promise<any> = staking.unstake();
+
+            await expect(unstakeTxPromise)
+              .to.be.revertedWith("VM Exception while processing transaction: reverted with reason string 'The caller has nothing at stake'");
+        })
+    });
 
-        await expect(stakeTxPromise).to.be.revertedWith("Staking token transfer failed");
-    })
+    describe("claim", async function() {
+        it("Should not allow to claim if there is no reward", async () => {
+            const claimTxPromise: Promise<any> = staking.claim();
 
-    it("Should not allow to unstake before the timeout has expired", async () => {
-        const tokensToStake: number = 100;
-        const stakingAddress = staking.address;
-        const aliceAddress: string = await alice.getAddress();
-        await stakingTokenMock.transferFrom.whenCalledWith(aliceAddress, stakingAddress, tokensToStake).returns(true);
-
-        await staking.stake(tokensToStake);
-        const unstakeTxPromise: Promise<any> = staking.unstake();
+            await expect(claimTxPromise)
+              .to.be.revertedWith("VM Exception while processing transaction: reverted with reason string 'No reward for the caller'");
+        })
 
-        await expect(unstakeTxPromise)
-          .to.be.revertedWith("VM Exception while processing transaction: reverted with reason string 'Timeout is not met'");
-    })
+        it("Should not allow to claim if a transfer of staking tokens failed", async () => {
+            const tokensToStake: number = 100;
+            const stakingAddress: string = staking.address;
+            const aliceAddress: string = await alice.getAddress();
+            const expectedReward = tokensToStake * rewardPercentage / 100;
+            await rewardTokenMock.transfer.whenCalledWith(aliceAddress, expectedReward).returns(false);
+            await stakingTokenMock.transferFrom.whenCalledWith(aliceAddress, stakingAddress, tokensToStake).returns(true);
 
-    it("Should allow to unstake after the timeout has expired", async () => {
-        const tokensToStake: number = 100;
-        const aliceAddress: string = await alice.getAddress();
-        const stakingAddress = staking.address;
-        await stakingTokenMock.transfer.whenCalledWith(aliceAddress, tokensToStake).returns(true);
-        await stakingTokenMock.transferFrom.whenCalledWith(aliceAddress, stakingAddress, tokensToStake).returns(true);
-        await daoMock.isParticipant.whenCalledWith(aliceAddress).returns(false);
+            await staking.stake(tokensToStake);
+            await network.provider.send("evm_increaseTime", [rewardingPeriod])
+            const claimTxPromise: Promise<any> = staking.claim();
 
-        await staking.stake(tokensToStake);
-        await network.provider.send("evm_increaseTime", [stakeWithdrawalTimeout])
+            await expect(claimTxPromise).to.be.revertedWith("Reward token transfer failed");
+        })
+    });
 
-        const aliceStakeBeforeUnstake: BigNumber = await staking.getStake(aliceAddress);
-        await staking.unstake();
-        const aliceStakeAfterUnstake: BigNumber = await staking.getStake(aliceAddress);
+    describe("setters", async function() {
+        it("Should not allow for non-owner to change the reward percentage", async () => {
+             const aNewRewardPercentage: number = 50;
 
-        expect(tokensToStake).to.equal(aliceStakeBeforeUnstake.toNumber() - aliceStakeAfterUnstake.toNumber());
-    })
+             const setRewardPercentageTxPromise: Promise<any> =
+                staking.connect(bob).setRewardPercentage(aNewRewardPercentage);
 
-    it("Should not allow to unstake if stakeholder is participating in voting", async () => {
-        const tokensToStake: number = 100;
-        const aliceAddress: string = await alice.getAddress();
-        const stakingAddress = staking.address;
-        await stakingTokenMock.transferFrom.whenCalledWith(aliceAddress, stakingAddress, tokensToStake).returns(true);
-        await daoMock.isParticipant.whenCalledWith(aliceAddress).returns(true);
+             await expect(setRewardPercentageTxPromise)
+               .to.be.revertedWith("VM Exception while processing transaction: reverted with reason string 'Ownable: caller is not the owner'");
+         })
 
-        await staking.stake(tokensToStake);
-        await network.provider.send("evm_increaseTime", [stakeWithdrawalTimeout])
-        const unstakeTxPromise: Promise<any> = staking.unstake();
+        it("Should not allow for non-owner to change the reward period", async () => {
+            const aNewRewardPeriod: number = 50;
 
-        await expect(unstakeTxPromise).to.be.revertedWith("A proposal participant");
-    })
+            const setRewardPeriodTxPromise: Promise<any> = staking.connect(bob).setRewardPeriod(aNewRewardPeriod);
 
-    it("Should not allow to unstake if a transfer of staking tokens failed", async () => {
-        const tokensToStake: number = 100;
-        const aliceAddress: string = await alice.getAddress();
-        const stakingAddress = staking.address;
-        await stakingTokenMock.transfer.whenCalledWith(aliceAddress, tokensToStake).returns(false);
-        await stakingTokenMock.transferFrom.whenCalledWith(aliceAddress, stakingAddress, tokensToStake).returns(true);
-        await daoMock.isParticipant.whenCalledWith(aliceAddress).returns(false);
+            await expect(setRewardPeriodTxPromise)
+                .to.be.revertedWith("VM Exception while processing transaction: reverted with reason string 'Ownable: caller is not the owner'");
+        })
 
-        await staking.stake(tokensToStake);
-        await network.provider.send("evm_increaseTime", [stakeWithdrawalTimeout])
-        const unstakeTxPromise: Promise<any> = staking.unstake();
+        it("Should not allow for non-dao to change the stake withdrawal timeout", async () => {
+            const aNewstakeWithdrawalTimeout: number = 50;
 
-        await expect(unstakeTxPromise).to.be.revertedWith("Staking token transfer failed");
-    })
+            const setStakeWithdrawalTimeoutTxPromise: Promise<any> =
+              staking.setStakeWithdrawalTimeout(aNewstakeWithdrawalTimeout);
 
-    it("Should not allow to unstake if nothing at stake", async () => {
-        const unstakeTxPromise: Promise<any> = staking.unstake();
+            await expect(setStakeWithdrawalTimeoutTxPromise)
+                .to.be.revertedWith("VM Exception while processing transaction: reverted with reason string 'Caller is not the DAO'");
+        })
 
-        await expect(unstakeTxPromise)
-          .to.be.revertedWith("VM Exception while processing transaction: reverted with reason string 'The caller has nothing at stake'");
-    })
+        it("Should allow for the owner to change the reward percentage", async () => {
+             const aNewRewardPercentage: number = 50;
 
-    it("Should not allow to claim if there is no reward", async () => {
-        const claimTxPromise: Promise<any> = staking.claim();
+             await staking.setRewardPercentage(aNewRewardPercentage);
 
-        await expect(claimTxPromise)
-          .to.be.revertedWith("VM Exception while processing transaction: reverted with reason string 'No reward for the caller'");
-    })
+             const rewardPercentage: number = (await staking.rewardPercentage()).toNumber();
+             expect(aNewRewardPercentage).to.equal(rewardPercentage);
+         })
 
-     it("Should not allow for non-owner to change the reward percentage", async () => {
-         const aNewRewardPercentage: number = 50;
+        it("Should allow for the owner to change the reward period", async () => {
+            const aNewRewardPeriod: number = 50;
 
-         const setRewardPercentageTxPromise: Promise<any> =
-            staking.connect(bob).setRewardPercentage(aNewRewardPercentage);
+            await staking.setRewardPeriod(aNewRewardPeriod);
 
-         await expect(setRewardPercentageTxPromise)
-           .to.be.revertedWith("VM Exception while processing transaction: reverted with reason string 'Ownable: caller is not the owner'");
-     })
+            const rewardPeriod: BigNumber = await staking.rewardPeriod();
+            expect(aNewRewardPeriod).to.equal(rewardPeriod);
+        })
 
-    it("Should not allow for non-owner to change the reward period", async () => {
-        const aNewRewardPeriod: number = 50;
+        it("Should allow for the dao to change the stake withdrawal timeout", async () => {
+            const daoAddress: string = daoMock.address;
+            const aNewStakeWithdrawalTimeout: number = 50;
+            const daoSigner: Signer = await ethers.getSigner(daoAddress);
+            await alice.sendTransaction({ to: daoAddress, value: ethers.utils.parseEther("1.0") });
 
-        const setRewardPeriodTxPromise: Promise<any> = staking.connect(bob).setRewardPeriod(aNewRewardPeriod);
+            await staking.connect(daoSigner).setStakeWithdrawalTimeout(aNewStakeWithdrawalTimeout);
+            const stakeWithdrawalTimeout: BigNumber = await staking.stakeWithdrawalTimeout();
 
-        await expect(setRewardPeriodTxPromise)
-            .to.be.revertedWith("VM Exception while processing transaction: reverted with reason string 'Ownable: caller is not the owner'");
-    })
+            expect(aNewStakeWithdrawalTimeout).to.equal(stakeWithdrawalTimeout);
+        })
 
-    it("Should not allow for non-dao to change the stake withdrawal timeout", async () => {
-        const aNewstakeWithdrawalTimeout: number = 50;
+        it("Should not allow to set the reward percentage to zero", async () => {
+            const aNewRewardPercentage = 0;
 
-        const setStakeWithdrawalTimeoutTxPromise: Promise<any> =
-          staking.setStakeWithdrawalTimeout(aNewstakeWithdrawalTimeout);
+            const setRewardPercentageTxPromise: Promise<any> = staking.setRewardPercentage(aNewRewardPercentage);
 
-        await expect(setStakeWithdrawalTimeoutTxPromise)
-            .to.be.revertedWith("VM Exception while processing transaction: reverted with reason string 'Caller is not the DAO'");
-    })
+            await expect(setRewardPercentageTxPromise)
+                .to.be.revertedWith("VM Exception while processing transaction: reverted with reason string 'Percentage can not be 0'");
+        })
 
-    it("Should allow for the owner to change the reward percentage", async () => {
-         const aNewRewardPercentage: number = 50;
+         it("Should not allow to set the reward percentage greater than 100", async () => {
+            const aNewRewardPercentage = 101;
 
-         await staking.setRewardPercentage(aNewRewardPercentage);
+            const setRewardPercentageTxPromise: Promise<any> =
+                staking.setRewardPercentage(aNewRewardPercentage);
 
-         const rewardPercentage: number = (await staking.rewardPercentage()).toNumber();
-         expect(aNewRewardPercentage).to.equal(rewardPercentage);
-     })
+            await expect(setRewardPercentageTxPromise)
+                .to.be.revertedWith("VM Exception while processing transaction: reverted with reason string 'Percentage can not exceed 100%'");
+         })
 
-    it("Should allow for the owner to change the reward period", async () => {
-        const aNewRewardPeriod: number = 50;
+         it("Should not allow to set the reward period to zero", async () => {
+             const aNewRewardPeriod = 0;
 
-        await staking.setRewardPeriod(aNewRewardPeriod);
+             const setRewardPeriodTxPromise: Promise<any> = staking.setRewardPeriod(aNewRewardPeriod);
 
-        const rewardPeriod: BigNumber = await staking.rewardPeriod();
-        expect(aNewRewardPeriod).to.equal(rewardPeriod);
-    })
+             await expect(setRewardPeriodTxPromise)
+                .to.be.revertedWith("VM Exception while processing transaction: reverted with reason string 'Reward period can not be zero'");
+         })
+    });
 
-    it("Should allow for the dao to change the stake withdrawal timeout", async () => {
-        const daoAddress: string = daoMock.address;
-        const aNewStakeWithdrawalTimeout: number = 50;
-        const daoSigner: Signer = await ethers.getSigner(daoAddress);
-        await alice.sendTransaction({ to: daoAddress, value: ethers.utils.parseEther("1.0") });
+    describe("ownership", async function() {
+        it("Should not allow to transfer ownership to the zero address", async () => {
+            const transferOwnershipTxPromise: Promise<any> = staking.transferOwnership(ethers.constants.AddressZero);
 
-        await staking.connect(daoSigner).setStakeWithdrawalTimeout(aNewStakeWithdrawalTimeout);
-        const stakeWithdrawalTimeout: BigNumber = await staking.stakeWithdrawalTimeout();
+            await expect(transferOwnershipTxPromise)
+                .to.be.revertedWith("VM Exception while processing transaction: reverted with reason string 'Ownable: new owner is the zero address'");
+        })
 
-        expect(aNewStakeWithdrawalTimeout).to.equal(stakeWithdrawalTimeout);
-    })
+        it("Should allow to transfer ownership to the valid address", async () => {
+            const bobAddress: string = await bob.getAddress();
 
-    it("Should not allow to set the reward percentage to zero", async () => {
-        const aNewRewardPercentage = 0;
+            await staking.transferOwnership(bobAddress);
 
-        const setRewardPercentageTxPromise: Promise<any> = staking.setRewardPercentage(aNewRewardPercentage);
+            const theOwner: string = await staking.owner();
+            expect(bobAddress).to.equal(theOwner);
+        })
+    });
 
-        await expect(setRewardPercentageTxPromise)
-            .to.be.revertedWith("VM Exception while processing transaction: reverted with reason string 'Percentage can not be 0'");
-    })
+    describe("misc", async function() {
+        it("Should calculate the reward properly", async () => {
+            const tokensToStake: number = 100;
+            const stakingAddress: string = staking.address;
+            const aliceAddress: string = await alice.getAddress();
+            const expectedReward = tokensToStake * rewardPercentage / 100;
+            await rewardTokenMock.transfer.whenCalledWith(aliceAddress, expectedReward).returns(true);
+            await stakingTokenMock.transferFrom.whenCalledWith(aliceAddress, stakingAddress, tokensToStake).returns(true);
 
-     it("Should not allow to set the reward percentage greater than 100", async () => {
-        const aNewRewardPercentage = 101;
+            await staking.stake(tokensToStake);
+            await network.provider.send("evm_increaseTime", [rewardingPeriod])
+            await staking.claim();
 
-        const setRewardPercentageTxPromise: Promise<any> =
-            staking.setRewardPercentage(aNewRewardPercentage);
+            expect(rewardTokenMock.transfer).to.be.calledOnceWith(aliceAddress, expectedReward);
+        })
 
-        await expect(setRewardPercentageTxPromise)
-            .to.be.revertedWith("VM Exception while processing transaction: reverted with reason string 'Percentage can not exceed 100%'");
-     })
+        it("Should return the valid owner", async () => {
+            const aliceAddress: string = await alice.getAddress();
 
-     it("Should not allow to set the reward period to zero", async () => {
-         const aNewRewardPeriod = 0;
+            const theOwner: string = await staking.owner();
 
-         const setRewardPeriodTxPromise: Promise<any> = staking.setRewardPeriod(aNewRewardPeriod);
+            expect(theOwner).to.equal(aliceAddress);
+        })
 
-         await expect(setRewardPeriodTxPromise)
-            .to.be.revertedWith("VM Exception while processing transaction: reverted with reason string 'Reward period can not be zero'");
-     })
+        it("Should return the valid dao address", async () => {
+            const expectedDaoAddress: string = daoMock.address;
 
-    it("Should calculate the reward properly", async () => {
-        const tokensToStake: number = 100;
-        const stakingAddress: string = staking.address;
-        const aliceAddress: string = await alice.getAddress();
-        const expectedReward = tokensToStake * rewardPercentage / 100;
-        await rewardTokenMock.transfer.whenCalledWith(aliceAddress, expectedReward).returns(true);
-        await stakingTokenMock.transferFrom.whenCalledWith(aliceAddress, stakingAddress, tokensToStake).returns(true);
+            const daoAddress: string = await staking.dao();
 
-        await staking.stake(tokensToStake);
-        await network.provider.send("evm_increaseTime", [rewardingPeriod])
-        await staking.claim();
+            expect(expectedDaoAddress).to.equal(daoAddress);
+        })
 
-        expect(rewardTokenMock.transfer).to.be.calledOnceWith(aliceAddress, expectedReward);
-    })
+        it("Should return the valid stake volume", async () => {
+            const tokensToStake: number = 100;
+            const stakingAddress: string = staking.address;
+            const aliceAddress: string = await alice.getAddress();
+            await stakingTokenMock.transferFrom.whenCalledWith(aliceAddress, stakingAddress, tokensToStake).returns(true);
 
-    it("Should not allow to claim if a transfer of staking tokens failed", async () => {
-        const tokensToStake: number = 100;
-        const stakingAddress: string = staking.address;
-        const aliceAddress: string = await alice.getAddress();
-        const expectedReward = tokensToStake * rewardPercentage / 100;
-        await rewardTokenMock.transfer.whenCalledWith(aliceAddress, expectedReward).returns(false);
-        await stakingTokenMock.transferFrom.whenCalledWith(aliceAddress, stakingAddress, tokensToStake).returns(true);
+            const aliceStakeBefore: BigNumber = await staking.getStake(aliceAddress);
+            await staking.stake(tokensToStake);
+            const aliceStakeAfter: BigNumber = await staking.getStake(aliceAddress);
 
-        await staking.stake(tokensToStake);
-        await network.provider.send("evm_increaseTime", [rewardingPeriod])
-        const claimTxPromise: Promise<any> = staking.claim();
-
-        await expect(claimTxPromise).to.be.revertedWith("Reward token transfer failed");
-    })
-
-    it("Should return the valid owner", async () => {
-        const aliceAddress: string = await alice.getAddress();
-
-        const theOwner: string = await staking.owner();
-
-        expect(theOwner).to.equal(aliceAddress);
-    })
-
-    it("Should return the valid dao address", async () => {
-        const expectedDaoAddress: string = daoMock.address;
-
-        const daoAddress: string = await staking.dao();
-
-        expect(expectedDaoAddress).to.equal(daoAddress);
-    })
-
-    it("Should return the valid stake volume", async () => {
-        const tokensToStake: number = 100;
-        const stakingAddress: string = staking.address;
-        const aliceAddress: string = await alice.getAddress();
-        await stakingTokenMock.transferFrom.whenCalledWith(aliceAddress, stakingAddress, tokensToStake).returns(true);
-
-        const aliceStakeBefore: BigNumber = await staking.getStake(aliceAddress);
-        await staking.stake(tokensToStake);
-        const aliceStakeAfter: BigNumber = await staking.getStake(aliceAddress);
-
-        expect(tokensToStake).to.equal(aliceStakeAfter.toNumber() - aliceStakeBefore.toNumber());
-    })
-
-    it("Should not allow to transfer ownership to the zero address", async () => {
-        const transferOwnershipTxPromise: Promise<any> = staking.transferOwnership(ethers.constants.AddressZero);
-
-        await expect(transferOwnershipTxPromise)
-            .to.be.revertedWith("VM Exception while processing transaction: reverted with reason string 'Ownable: new owner is the zero address'");
-    })
-
-    it("Should allow to transfer ownership to the valid address", async () => {
-        const bobAddress: string = await bob.getAddress();
-
-        await staking.transferOwnership(bobAddress);
-
-        const theOwner: string = await staking.owner();
-        expect(bobAddress).to.equal(theOwner);
-    })
+            expect(tokensToStake).to.equal(aliceStakeAfter.toNumber() - aliceStakeBefore.toNumber());
+        })
+    });
 });
