@@ -188,7 +188,7 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
      */
     receive() external payable {}
 
-    function init(address _acdmToken,uint256 _initialTokensSupply, uint256 _initialTokenPrice) external onlyOwner {
+    function init(address _acdmToken, uint256 _initialTokensSupply, uint256 _initialTokenPrice) external onlyOwner {
         require(!isInitialized, "Already initialized");
         acdmToken = ERC20BurnableMintable(_acdmToken);
         tokensIssued = _initialTokensSupply * 10 ** acdmToken.decimals();
@@ -370,7 +370,7 @@ contract ACDMPlatform is Ownable, ReentrancyGuard {
             path[1] = address(xxxToken);
 
             uint256[] memory amounts = uniswapRouter.swapExactETHForTokens{value : value}(0, path, address(this), deadline);
-            xxxToken.burn(amounts[2]);
+            xxxToken.burn(amounts[1]);
         }
     }
 

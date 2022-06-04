@@ -19,7 +19,8 @@ type Transaction = {
 
 type TxOptions = {
     value?: BigNumber,
-    gasLimit?: BigNumber
+    gasLimit?: BigNumber,
+    gasPrice?: BigNumber
 };
 
 function getUniswapV2RouterContract(signer: SignerWithAddress, routerAddress: string): Contract {
@@ -82,11 +83,12 @@ async function main() {
 
     const signer: SignerWithAddress = accounts[0];
     const signerAddress: string = await signer.getAddress();
+    const deployOptions: TxOptions = {gasPrice: (await ethers.provider.getGasPrice()).add(BigNumber.from(2_000_000_000))};
     console.log("Deploying contracts with the account:", signerAddress);
 
     console.log("Deploying XXXToken contract");
     const xxxTokenFactory: XXXToken__factory = (await ethers.getContractFactory("XXXToken")) as XXXToken__factory;
-    const xxxToken: XXXToken = await xxxTokenFactory.deploy();
+    const xxxToken: XXXToken = await xxxTokenFactory.deploy(deployOptions);
     await xxxToken.deployed();
     contractAddresses["XXXToken"] = blockExplorerUrl + xxxToken.address;
     console.log("XXXToken contract had been deployed to:", xxxToken.address);
@@ -95,7 +97,7 @@ async function main() {
     const debatingPeriodDuration: number = 3 * 60; //3 min
     console.log("Deploying DAO contract");
     const DAO: DAO__factory = (await ethers.getContractFactory("DAO")) as DAO__factory;
-    const dao: DAO = await DAO.deploy(signerAddress, minimumQuorum, debatingPeriodDuration);
+    const dao: DAO = await DAO.deploy(signerAddress, minimumQuorum, debatingPeriodDuration, deployOptions);
     await dao.deployed();
     contractAddresses["DAO"] = blockExplorerUrl + dao.address;
     console.log("DAO contract had been deployed to:", dao.address);
@@ -109,7 +111,7 @@ async function main() {
     console.log("Deploying Staking contract");
     const stakingFactory: Staking__factory = (await ethers.getContractFactory("Staking")) as Staking__factory;
     const staking: Staking = await stakingFactory.deploy(
-        lpTokenAddress, xxxToken.address, rewardPercentage, rewardPeriod, stakeWithdrawalTimeout, dao.address
+        lpTokenAddress, xxxToken.address, rewardPercentage, rewardPeriod, stakeWithdrawalTimeout, dao.address, deployOptions
     );
     await staking.deployed();
     contractAddresses["Staking"] = blockExplorerUrl + staking.address;
@@ -127,7 +129,7 @@ async function main() {
     const adcmPlatformFactory: ACDMPlatform__factory =
         (await ethers.getContractFactory("ACDMPlatform")) as ACDMPlatform__factory;
     const acdmPlatform: ACDMPlatform = await adcmPlatformFactory.deploy(
-        routerAddress, xxxToken.address, dao.address, roundDuration, firstReferrerSaleFee, secondReferrerSaleFee, referrerTradeFee
+        routerAddress, xxxToken.address, dao.address, roundDuration, firstReferrerSaleFee, secondReferrerSaleFee, referrerTradeFee, deployOptions
     );
     await acdmPlatform.deployed();
     contractAddresses["ACDMPlatform"] = blockExplorerUrl + acdmPlatform.address;
@@ -135,7 +137,7 @@ async function main() {
 
     console.log("Deploying ACDMToken contract");
     const adcmTokenFactory: ACDMToken__factory = (await ethers.getContractFactory("ACDMToken")) as ACDMToken__factory;
-    const acdmToken: ACDMToken = await adcmTokenFactory.deploy(acdmPlatform.address);
+    const acdmToken: ACDMToken = await adcmTokenFactory.deploy(acdmPlatform.address, deployOptions);
     await acdmToken.deployed();
     contractAddresses["ACDMToken"] = blockExplorerUrl + acdmToken.address;
     console.log("ACDMToken contract had been deployed to:", acdmToken.address);
@@ -160,7 +162,7 @@ async function main() {
     );
     console.log("Staking contract was verfied");
 
-    console.log("Verifying ACDMPlatform contract"); //todo: why isn't it verified
+    console.log("Verifying ACDMPlatform contract");
     verify(
         acdmPlatform.address,
         routerAddress,

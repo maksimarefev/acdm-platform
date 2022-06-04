@@ -551,7 +551,7 @@ describe("ACDMPlatform", function() {
             await acdmTokenMock.transfer.whenCalledWith(bobAddress, amount).returns(true);
             const amountOutMin: number = 0;
             const path: string[] = [await uniswapRouterMock.WETH(), xxxTokenMock.address];
-            const amounts: number[] = [0, 0, 20];
+            const amounts: number[] = [0, 20];
 
             await alice.sendTransaction({ to: daoMock.address, value: ethers.utils.parseEther("0.5") });
             await network.provider.send("evm_increaseTime", [roundDuration]);
@@ -566,7 +566,7 @@ describe("ACDMPlatform", function() {
             await acdmPlatform.connect(daoMock.wallet).spendFees(false, deadline);
 
             expect(uniswapRouterMock.swapExactETHForTokens).to.be.calledOnceWith(amountOutMin, path, acdmPlatform.address, deadline);
-            expect(xxxTokenMock.burn).to.be.calledOnceWith(amounts[2]);
+            expect(xxxTokenMock.burn).to.be.calledOnceWith(amounts[1]);
         });
    });
 
