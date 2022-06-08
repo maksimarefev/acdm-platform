@@ -503,17 +503,17 @@ describe("ACDMPlatform", function() {
             await expect(spendFeesTxPromise).to.be.revertedWith("Caller is not the DAO");
         });
 
-        it("Should fail if deadline is in the past", async function() {
+        it.only("Should fail if deadline is in the past", async function() {
             const sendToOwner: boolean = true;
             const deadline: number = Math.floor(new Date().getTime() / 1000) - 100;
 
-            await alice.sendTransaction({ to: daoMock.address, value: ethers.utils.parseEther("0.5") });
+            await network.provider.send("hardhat_setBalance", [daoMock.address, "0xde0b6b3a7640000"]); //1 ether
             const spendFeesTxPromise: Promise<any> = acdmPlatform.connect(daoMock.wallet).spendFees(sendToOwner, deadline);
 
             await expect(spendFeesTxPromise).to.be.revertedWith("Deadline is in the past");
         });
 
-        it("Should transfer fees to owner", async function() {
+        it.only("Should transfer fees to owner", async function() {
             const orderId: number = 0;
             const amount: number = 1;
             const deadline: number = Math.floor(new Date().getTime() / 1000) + 1000;
@@ -524,7 +524,7 @@ describe("ACDMPlatform", function() {
             const expectedFee: number = amount * weiPerDecimal * referrerTradeFee * 2 / 100;
             await acdmTokenMock.transfer.whenCalledWith(bobAddress, amount).returns(true);
 
-            await alice.sendTransaction({ to: daoMock.address, value: ethers.utils.parseEther("0.5") });
+            await network.provider.send("hardhat_setBalance", [daoMock.address, "0xde0b6b3a7640000"]); //1 ether
             await network.provider.send("evm_increaseTime", [roundDuration]);
             await acdmPlatform.startTradeRound();
             await putOrder(amount, price, alice);
@@ -553,7 +553,7 @@ describe("ACDMPlatform", function() {
             const path: string[] = [await uniswapRouterMock.WETH(), xxxTokenMock.address];
             const amounts: number[] = [0, 20];
 
-            await alice.sendTransaction({ to: daoMock.address, value: ethers.utils.parseEther("0.5") });
+            await network.provider.send("hardhat_setBalance", [daoMock.address, "0xde0b6b3a7640000"]); //1 ether
             await network.provider.send("evm_increaseTime", [roundDuration]);
             await acdmPlatform.startTradeRound();
             await putOrder(amount, price, alice);
